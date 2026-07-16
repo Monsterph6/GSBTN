@@ -1,0 +1,31 @@
+name: Export feature source
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: ${{ github.event.issue.title == '[DEV] Export duplicate-filter source' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/duplicate-filter
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: duplicate-filter-source
+          include-hidden-files: true
+          path: |
+            .github
+            tests
+            *.py
+            *.md
+            *.txt
+            *.bat
+            *.iss
+            .gitignore
