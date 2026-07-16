@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   unpack-source:
-    if: ${{ hashFiles('.bootstrap/part-*') != '' }}
     runs-on: windows-latest
 
     steps:
