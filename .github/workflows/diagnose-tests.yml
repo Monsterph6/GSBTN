@@ -29,7 +29,7 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
-      - name: Run build and post full result
+      - name: Run build and post final log
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,9 +37,9 @@ jobs:
           & cmd.exe /d /c "build.bat > build-output.txt 2>&1"
           $code = $LASTEXITCODE
           $output = Get-Content build-output.txt -Raw
-          if ($output.Length -gt 50000) { $output = $output.Substring($output.Length - 50000) }
+          if ($output.Length -gt 7000) { $output = $output.Substring($output.Length - 7000) }
           $body = @"
-          ## Windows build diagnostic
+          ## Windows build diagnostic — final log
 
           Exit code: `$code`
 
