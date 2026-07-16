@@ -7,24 +7,33 @@ on:
 permissions:
   actions: read
   issues: write
-  contents: read
+  contents: write
 
 jobs:
   report:
     if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[REPORT RELEASE V050]') }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/lan-duplicates-backup
+          fetch-depth: 0
       - name: Report latest release workflow runs
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?per_page=5")
-          python - <<'PY' "$runs" > report.md
+          python - <<'PY' "$runs" > .v050-release-report.txt
           import json, sys
           data = json.loads(sys.argv[1])
           print('[V050 RELEASE REPORT]')
           for item in data.get('workflow_runs', []):
-              print(f"- run={item.get('id')} status={item.get('status')} conclusion={item.get('conclusion')} event={item.get('event')} sha={item.get('head_sha')}")
+              print(f"run={item.get('id')} status={item.get('status')} conclusion={item.get('conclusion')} event={item.get('event')} sha={item.get('head_sha')}")
           PY
-          gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body-file report.md
+          gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body-file .v050-release-report.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .v050-release-report.txt
+          git commit -m "Ghi trạng thái Release v0.5.0" || true
+          git push origin HEAD:agent/lan-duplicates-backup
