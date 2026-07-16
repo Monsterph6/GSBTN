@@ -1,0 +1,51 @@
+name: Verify GitHub Release assets
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    if: ${{ github.head_ref == 'release-trigger-v0.3.0' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect release and report assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.3.0 --repo "$GITHUB_REPOSITORY" --json url,tagName,name,assets > release.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('release.json').read_text())
+          assets = data.get('assets', [])
+          names = [asset.get('name', '') for asset in assets]
+          required = {
+              'GiamSatDichBenh-Setup-v0.3.0.exe',
+              'GiamSatDichBenh-Portable-v0.3.0.zip',
+              'SHA256SUMS.txt',
+          }
+          missing = sorted(required - set(names))
+          lines = [
+              '## GitHub Release verification',
+              '',
+              f"Release: {data.get('url', '')}",
+              f"Tag: `{data.get('tagName', '')}`",
+              '',
+              'Assets:',
+          ]
+          for asset in assets:
+              lines.append(f"- `{asset.get('name', '')}` — {asset.get('size', 0):,} bytes")
+          if missing:
+              lines += ['', 'Missing:', *[f'- `{name}`' for name in missing]]
+          Path('release-comment.md').write_text('\n'.join(lines), encoding='utf-8')
+          if missing:
+              raise SystemExit(2)
+          PY
+          gh issue comment 2 --repo "$GITHUB_REPOSITORY" --body-file release-comment.md
