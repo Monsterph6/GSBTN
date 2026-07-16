@@ -1,0 +1,48 @@
+name: Verify Release v0.4.0
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    if: github.head_ref == 'agent/verify-release-v040'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release and assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.4.0 --repo "$GITHUB_REPOSITORY" --json tagName,url,assets > release.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('release.json').read_text(encoding='utf-8'))
+          expected = {
+              'GiamSatDichBenh-Setup-v0.4.0.exe',
+              'GiamSatDichBenh-Portable-v0.4.0.zip',
+              'SHA256SUMS.txt',
+          }
+          assets = {item['name']: item for item in data.get('assets', [])}
+          missing = sorted(expected - set(assets))
+          if missing:
+              raise SystemExit('Missing release assets: ' + ', '.join(missing))
+          empty = sorted(name for name in expected if int(assets[name].get('size', 0)) <= 0)
+          if empty:
+              raise SystemExit('Empty release assets: ' + ', '.join(empty))
+          lines = [f"tag={data['tagName']}", f"url={data['url']}"]
+          for name in sorted(expected):
+              lines.append(f"{name}\t{assets[name]['size']} bytes\t{assets[name].get('url', '')}")
+          Path('release-verification.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          print('\n'.join(lines))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-v0.4.0-verification
+          path: release-verification.txt
