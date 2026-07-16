@@ -6,3 +6,4 @@ Retry after enforcing Setup.exe creation.
 Run full Windows build diagnostic.
 Capture final 7000 characters of build log.
 Retry after removing unavailable Vietnamese.isl dependency.
+Verify GitHub Release assets.
