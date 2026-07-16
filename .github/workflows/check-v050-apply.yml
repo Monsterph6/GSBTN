@@ -67,21 +67,23 @@ jobs:
                   patch += '\n'
               patch += parts.get(n, '')
           Path('v050.patch').write_text(patch, encoding='utf-8', newline='\n')
-          Path('.v050-apply-stage.txt').write_text(
-              'sha256=' + hashlib.sha256(Path('v050.patch').read_bytes()).hexdigest() + '\n', encoding='utf-8'
-          )
+          digest = hashlib.sha256(Path('v050.patch').read_bytes()).hexdigest()
+          expected = 'cc206a3b146b2b7ec94983b67b0964598ec2b0723ad4eaedb80384d294d05cbf'
+          if digest != expected:
+              raise SystemExit(f'Checksum mismatch: {digest}')
+          Path('.v050-apply-stage.txt').write_text('sha256=' + digest + '\n', encoding='utf-8')
       - name: Apply, compile and publish or record failure
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          git apply --check --verbose --ignore-space-change --ignore-whitespace v050.patch > check-output.txt 2>&1
+          git apply --check --verbose --ignore-space-change --ignore-whitespace --exclude=lan_server.py v050.patch > check-output.txt 2>&1
           check_code=$?
           apply_code=99
           compile_code=99
           if [ "$check_code" -eq 0 ]; then
-            git apply --ignore-space-change --ignore-whitespace v050.patch > apply-output.txt 2>&1
+            git apply --ignore-space-change --ignore-whitespace --exclude=lan_server.py v050.patch > apply-output.txt 2>&1
             apply_code=$?
           else
             : > apply-output.txt
@@ -113,7 +115,7 @@ jobs:
           if [ "$check_code" -eq 0 ] && [ "$apply_code" -eq 0 ] && [ "$compile_code" -eq 0 ]; then
             find . -type d -name __pycache__ -prune -exec rm -rf {} +
             rm -f v050.patch comments.json check-output.txt apply-output.txt compile-output.txt stage-report.txt
-            rm -f .v050-diagnostic.txt .v050-ping.txt .v050-apply-stage.txt
+            rm -f .v050-diagnostic.txt .v050-ping.txt .v050-apply-stage.txt .v050-deploy-error.txt
             git add -A
             git commit -m "Bổ sung LAN, lọc trùng nâng cao và sao lưu phục hồi"
             git push origin HEAD:agent/lan-duplicates-backup
