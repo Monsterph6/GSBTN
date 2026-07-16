@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    if: ${{ github.event.issue.title == '[DEV] Validate v0.4.0 on Windows' }}
+    if: ${{ github.event.issue.title == '[DEV] Validate clean v0.4.0' }}
     runs-on: windows-latest
     steps:
       - name: Checkout feature branch
@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: |
           $bad = Get-ChildItem . -Recurse -File -Force | Where-Object {
-            $_.FullName -notmatch '\\.git\\' -and $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv'
+            $_.FullName -notmatch '\.git\' -and $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv'
           }
           if ($bad) { $bad | ForEach-Object { Write-Error $_.FullName }; exit 1 }
       - name: Install dependencies
