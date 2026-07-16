@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from contextlib import contextmanager
+from difflib import SequenceMatcher
 import hashlib
 import json
 import os
@@ -18,7 +19,7 @@ from typing import Any, Iterable, Sequence
 from openpyxl import Workbook, load_workbook
 
 APP_NAME = "Giám sát dịch bệnh"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 def _base_dir() -> Path:
@@ -294,6 +295,15 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                 severity TEXT NOT NULL,
                 issue_type TEXT NOT NULL,
                 description TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS duplicate_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                keep_id INTEGER NOT NULL,
+                removed_ids_json TEXT NOT NULL,
+                backup_file TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -896,6 +906,275 @@ def delete_record(entity_type: str, record_id: int, db_path: Path | str = DB_PAT
         conn.execute("DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, record_id))
 
 
+
+def _match_text(value: Any) -> str:
+    text = normalize_key(value)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _match_digits(value: Any) -> str:
+    return re.sub(r"\D+", "", strip_text(value))
+
+
+def _disease_match_text(value: Any) -> str:
+    text = _match_text(value)
+    return re.sub(r"^benh", "", text)
+
+
+def _date_distance_days(left: Any, right: Any) -> int | None:
+    a = _date_obj(strip_text(left))
+    b = _date_obj(strip_text(right))
+    if not a or not b:
+        return None
+    return abs((a.date() - b.date()).days)
+
+
+def _case_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    code_a, code_b = _match_text(a.get("case_code")), _match_text(b.get("case_code"))
+    id_a, id_b = _match_digits(a.get("national_id")), _match_digits(b.get("national_id"))
+    phone_a, phone_b = _match_digits(a.get("phone"))[-9:], _match_digits(b.get("phone"))[-9:]
+    name_a, name_b = _match_text(a.get("full_name")), _match_text(b.get("full_name"))
+
+    if code_a and code_a == code_b:
+        return 100, ["Trùng mã ca bệnh"]
+    if len(id_a) >= 9 and id_a == id_b:
+        return 100, ["Trùng CCCD/CMND"]
+    if name_a and name_a == name_b:
+        score += 35
+        reasons.append("Trùng họ tên")
+    elif name_a and name_b:
+        ratio = SequenceMatcher(None, name_a, name_b).ratio()
+        if ratio >= 0.92:
+            score += 28
+            reasons.append(f"Họ tên gần giống {ratio:.0%}")
+
+    if len(phone_a) >= 7 and phone_a == phone_b:
+        score += 35
+        reasons.append("Trùng số điện thoại")
+    if a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
+        score += 15
+        reasons.append("Trùng năm sinh")
+    if _match_text(a.get("gender")) and _match_text(a.get("gender")) == _match_text(b.get("gender")):
+        score += 5
+        reasons.append("Trùng giới tính")
+    if _match_text(a.get("commune")) and _match_text(a.get("commune")) == _match_text(b.get("commune")):
+        score += 8
+        reasons.append("Trùng xã/phường")
+    if _match_text(a.get("main_diagnosis")) and _match_text(a.get("main_diagnosis")) == _match_text(b.get("main_diagnosis")):
+        score += 7
+        reasons.append("Trùng chẩn đoán")
+    days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
+    if days == 0:
+        score += 15
+        reasons.append("Trùng ngày khởi phát")
+    elif days is not None and days <= 3:
+        score += 10
+        reasons.append(f"Khởi phát lệch {days} ngày")
+    elif days is not None and days <= 14:
+        score += 4
+        reasons.append(f"Khởi phát trong {days} ngày")
+    addr_a, addr_b = _match_text(a.get("current_address")), _match_text(b.get("current_address"))
+    if addr_a and addr_b and SequenceMatcher(None, addr_a, addr_b).ratio() >= 0.85:
+        score += 5
+        reasons.append("Địa chỉ gần giống")
+    return min(score, 99), reasons
+
+
+def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    disease_a, disease_b = _disease_match_text(a.get("disease")), _disease_match_text(b.get("disease"))
+    location_a, location_b = _match_text(a.get("location")), _match_text(b.get("location"))
+    if disease_a and disease_a == disease_b:
+        score += 30
+        reasons.append("Trùng tên bệnh")
+    else:
+        return 0, []
+    if location_a and location_a == location_b:
+        score += 45
+        reasons.append("Trùng địa điểm ổ dịch")
+    elif location_a and location_b:
+        ratio = SequenceMatcher(None, location_a, location_b).ratio()
+        if ratio >= 0.88:
+            score += 35
+            reasons.append(f"Địa điểm gần giống {ratio:.0%}")
+        elif ratio >= 0.75:
+            score += 20
+            reasons.append(f"Địa điểm tương tự {ratio:.0%}")
+    if _match_text(a.get("admin_area")) and _match_text(a.get("admin_area")) == _match_text(b.get("admin_area")):
+        score += 10
+        reasons.append("Trùng địa bàn")
+    days = _date_distance_days(a.get("first_onset_date"), b.get("first_onset_date"))
+    if days == 0:
+        score += 20
+        reasons.append("Trùng ngày khởi phát ca đầu")
+    elif days is not None and days <= 7:
+        score += 15
+        reasons.append(f"Khởi phát ca đầu lệch {days} ngày")
+    elif days is not None and days <= 14:
+        score += 8
+        reasons.append(f"Khởi phát ca đầu trong {days} ngày")
+    if _match_text(a.get("reporting_unit")) and _match_text(a.get("reporting_unit")) == _match_text(b.get("reporting_unit")):
+        score += 5
+        reasons.append("Trùng đơn vị báo cáo")
+    return min(score, 99), reasons
+
+
+def find_duplicate_groups(
+    entity_type: str,
+    *,
+    min_score: int = 65,
+    max_records: int = 20000,
+    db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp."""
+    table, _ = _safe_table(entity_type)
+    min_score = max(50, min(100, int(min_score)))
+    if entity_type == "case":
+        fields = [
+            "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
+            "national_id", "phone", "current_address", "commune", "main_diagnosis",
+            "onset_date", "report_datetime", "reporting_unit", "source_file", "source_row",
+        ]
+    else:
+        fields = [
+            "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date",
+            "status", "case_count", "report_datetime", "reporting_unit", "source_file", "source_row",
+        ]
+    with _connect(db_path) as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT {','.join(fields)} FROM {table} ORDER BY id LIMIT ?", (max_records,)
+        ).fetchall()]
+    if len(rows) < 2:
+        return []
+
+    buckets: dict[str, list[int]] = {}
+    for index, row in enumerate(rows):
+        keys: set[str] = set()
+        if entity_type == "case":
+            code = _match_text(row.get("case_code"))
+            national_id = _match_digits(row.get("national_id"))
+            phone = _match_digits(row.get("phone"))[-9:]
+            name = _match_text(row.get("full_name"))
+            year = row.get("birth_year") or ""
+            commune = _match_text(row.get("commune"))
+            if code: keys.add("code:" + code)
+            if len(national_id) >= 9: keys.add("nid:" + national_id)
+            if len(phone) >= 7: keys.add("phone:" + phone)
+            if name and year: keys.add(f"nameyear:{name}:{year}")
+            if name and commune: keys.add(f"namearea:{name}:{commune}")
+            if name: keys.add("name:" + name)
+        else:
+            disease = _disease_match_text(row.get("disease"))
+            location = _match_text(row.get("location"))
+            area = _match_text(row.get("admin_area"))
+            if disease and location: keys.add(f"event:{disease}:{location}")
+            if disease and area: keys.add(f"eventarea:{disease}:{area}")
+        for key in keys:
+            buckets.setdefault(key, []).append(index)
+
+    candidate_pairs: set[tuple[int, int]] = set()
+    for indexes in buckets.values():
+        if len(indexes) > 250:
+            indexes = indexes[:250]
+        for pos, left in enumerate(indexes):
+            for right in indexes[pos + 1:]:
+                candidate_pairs.add((min(left, right), max(left, right)))
+
+    edges: list[tuple[int, int, int, list[str]]] = []
+    scorer = _case_pair_score if entity_type == "case" else _outbreak_pair_score
+    for left, right in candidate_pairs:
+        score, reasons = scorer(rows[left], rows[right])
+        if score >= min_score:
+            edges.append((left, right, score, reasons))
+    if not edges:
+        return []
+
+    parent = list(range(len(rows)))
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb: parent[rb] = ra
+    for left, right, _, _ in edges:
+        union(left, right)
+
+    groups: dict[int, set[int]] = {}
+    for left, right, _, _ in edges:
+        root = find(left)
+        groups.setdefault(root, set()).update((left, right))
+
+    result: list[dict[str, Any]] = []
+    for group_no, indexes in enumerate(sorted(groups.values(), key=lambda g: min(rows[i]["id"] for i in g)), start=1):
+        group_edges = [edge for edge in edges if edge[0] in indexes and edge[1] in indexes]
+        best_score = max(edge[2] for edge in group_edges)
+        all_reasons: list[str] = []
+        for _, _, _, edge_reasons in sorted(group_edges, key=lambda e: e[2], reverse=True):
+            for reason in edge_reasons:
+                if reason not in all_reasons:
+                    all_reasons.append(reason)
+        records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
+        if entity_type == "case":
+            summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
+        else:
+            summary = " / ".join(str(r.get("location") or r["id"]) for r in records[:3])
+        result.append({
+            "group_id": group_no,
+            "entity_type": entity_type,
+            "confidence": "Trùng chắc chắn" if best_score >= 85 else "Nghi trùng",
+            "score": best_score,
+            "record_count": len(records),
+            "record_ids": [int(r["id"]) for r in records],
+            "summary": summary,
+            "reasons": "; ".join(all_reasons[:8]),
+            "records": records,
+        })
+    return sorted(result, key=lambda g: (-int(g["score"]), int(g["group_id"])))
+
+
+def remove_duplicate_records(
+    entity_type: str,
+    keep_id: int,
+    remove_ids: Sequence[int],
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    table, _ = _safe_table(entity_type)
+    keep_id = int(keep_id)
+    ids = sorted({int(v) for v in remove_ids if int(v) != keep_id})
+    if not ids:
+        raise ValueError("Chưa chọn bản ghi trùng để xóa.")
+    with _connect(db_path) as conn:
+        existing = {int(r[0]) for r in conn.execute(
+            f"SELECT id FROM {table} WHERE id IN ({','.join('?' for _ in [keep_id, *ids])})",
+            [keep_id, *ids],
+        ).fetchall()}
+    if keep_id not in existing:
+        raise ValueError("Bản ghi cần giữ không tồn tại.")
+    missing = [record_id for record_id in ids if record_id not in existing]
+    if missing:
+        raise ValueError(f"Bản ghi cần xóa không tồn tại: {missing}")
+    backup = create_backup(db_path)
+    with _connect(db_path) as conn:
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
+        conn.execute(
+            f"DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id IN ({placeholders})",
+            [entity_type, *ids],
+        )
+        conn.execute(
+            """INSERT INTO duplicate_actions
+               (entity_type, keep_id, removed_ids_json, backup_file, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (entity_type, keep_id, json.dumps(ids), str(backup), datetime.now().isoformat(sep=" ", timespec="seconds")),
+        )
+    return {"kept_id": keep_id, "removed_ids": ids, "removed_count": len(ids), "backup_file": str(backup)}
+
+
 def list_quality_issues(
     *, severity: str = "", entity_type: str = "", limit: int = 2000, db_path: Path | str = DB_PATH
 ) -> list[dict[str, Any]]:
@@ -1031,9 +1310,16 @@ def export_filtered_records(
 def create_backup(db_path: Path | str = DB_PATH) -> Path:
     db_path = Path(db_path)
     init_db(db_path)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     target = BACKUP_DIR / f"giam_sat_dich_benh_{stamp}.db"
-    shutil.copy2(db_path, target)
+    source = sqlite3.connect(db_path)
+    destination = sqlite3.connect(target)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
     backups = sorted(BACKUP_DIR.glob("giam_sat_dich_benh_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in backups[10:]:
         old.unlink(missing_ok=True)

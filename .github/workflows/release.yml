@@ -2,8 +2,9 @@ name: Build and Publish Windows Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,6 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -35,15 +35,13 @@ jobs:
         run: |
           $version = (Get-Content VERSION.txt -Raw).Trim()
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "VERSION.txt must contain a semantic version such as 0.3.0"
+            throw "VERSION.txt must contain a semantic version such as 0.4.0"
           }
           $tag = "v$version"
           $existingTag = git ls-remote --tags origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Unable to query tags from origin."
-          }
-          if ($existingTag) {
-            throw "Release $tag already exists. Increase VERSION.txt before pushing another release."
+          if ($LASTEXITCODE -ne 0) { throw "Unable to query tags from origin." }
+          if ($existingTag -and "${{ github.event_name }}" -ne "pull_request") {
+            throw "Release $tag already exists. Increase VERSION.txt before publishing another release."
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
@@ -53,19 +51,12 @@ jobs:
         run: |
           $forbiddenExtensions = @('.db', '.sqlite', '.sqlite3', '.xlsx', '.xls', '.xlsm', '.csv')
           $forbiddenDirectories = @('data', 'backups', 'update_cache')
-
-          $forbiddenFiles = Get-ChildItem . -Recurse -File -Force |
-            Where-Object {
-              $_.FullName -notmatch '\\.git\\' -and
-              ($forbiddenExtensions -contains $_.Extension.ToLower())
-            }
-
-          $forbiddenDirs = Get-ChildItem . -Recurse -Directory -Force |
-            Where-Object {
-              $_.FullName -notmatch '\\.git\\' -and
-              $forbiddenDirectories -contains $_.Name.ToLower()
-            }
-
+          $forbiddenFiles = Get-ChildItem . -Recurse -File -Force | Where-Object {
+            $_.FullName -notmatch '\\.git\\' -and ($forbiddenExtensions -contains $_.Extension.ToLower())
+          }
+          $forbiddenDirs = Get-ChildItem . -Recurse -Directory -Force | Where-Object {
+            $_.FullName -notmatch '\\.git\\' -and ($forbiddenDirectories -contains $_.Name.ToLower())
+          }
           if ($forbiddenFiles -or $forbiddenDirs) {
             $forbiddenFiles | ForEach-Object { Write-Error "Forbidden data file: $($_.FullName)" }
             $forbiddenDirs | ForEach-Object { Write-Error "Forbidden data directory: $($_.FullName)" }
@@ -93,8 +84,9 @@ jobs:
       - name: Verify build contains no user data
         shell: pwsh
         run: |
-          $forbidden = Get-ChildItem dist,setup_output -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv' }
+          $forbidden = Get-ChildItem dist,setup_output -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+            $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv'
+          }
           if ($forbidden) {
             $forbidden | ForEach-Object { Write-Error "Forbidden data file in release: $($_.FullName)" }
             exit 1
@@ -110,13 +102,8 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $files = @(
-            "setup_output/GiamSatDichBenh-Setup-v$version.exe",
-            "GiamSatDichBenh-Portable-v$version.zip"
-          )
-          foreach ($file in $files) {
-            if (-not (Test-Path $file)) { throw "Missing release file: $file" }
-          }
+          $files = @("setup_output/GiamSatDichBenh-Setup-v$version.exe", "GiamSatDichBenh-Portable-v$version.zip")
+          foreach ($file in $files) { if (-not (Test-Path $file)) { throw "Missing release file: $file" } }
           $lines = foreach ($file in $files) {
             $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
             "$hash  $([IO.Path]::GetFileName($file))"
@@ -124,18 +111,17 @@ jobs:
           $lines | Set-Content "SHA256SUMS.txt" -Encoding ascii
 
       - name: Create tag and GitHub Release
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $tag = "${{ steps.version.outputs.tag }}"
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a $tag HEAD -m "Release $tag"
           git push origin $tag
-
           gh release create $tag `
             "setup_output/GiamSatDichBenh-Setup-v$version.exe" `
             "GiamSatDichBenh-Portable-v$version.zip" `

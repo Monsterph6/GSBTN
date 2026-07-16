@@ -57,17 +57,22 @@ def load_config() -> DeploymentConfig:
     except (TypeError, ValueError):
         port = 8765
     port = max(1, min(65535, port))
+    server_url = str(raw.get("server_url", f"http://127.0.0.1:{port}") or "").strip().rstrip("/")
     return DeploymentConfig(
         mode=mode,
         server_host=str(raw.get("server_host", "0.0.0.0") or "0.0.0.0").strip(),
         server_port=port,
-        server_url=str(raw.get("server_url", f"http://127.0.0.1:{port}") or "").strip().rstrip("/"),
+        server_url=server_url or f"http://127.0.0.1:{port}",
         password=str(raw.get("password", "") or ""),
         auto_start_server=bool(raw.get("auto_start_server", True)),
     )
 
 
 def save_config(config: DeploymentConfig) -> Path:
+    if config.mode not in VALID_MODES:
+        raise ValueError("Chế độ triển khai không hợp lệ.")
+    config.server_port = max(1, min(65535, int(config.server_port)))
+    config.server_url = config.server_url.strip().rstrip("/")
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_PATH.with_suffix(".tmp")
     temp.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")

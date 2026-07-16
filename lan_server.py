@@ -14,26 +14,12 @@ from typing import Any
 import core
 from deployment_config import DeploymentConfig, load_config
 
-
 READ_FUNCTIONS = {
-    "dashboard_stats",
-    "disease_summary",
-    "monthly_outbreak_summary",
-    "recent_active_outbreaks",
-    "list_filter_values",
-    "query_records",
-    "get_record",
-    "list_quality_issues",
-    "list_import_batches",
-    "execute_select",
-    "find_duplicate_groups",
+    "dashboard_stats", "disease_summary", "monthly_outbreak_summary", "recent_active_outbreaks",
+    "list_filter_values", "query_records", "get_record", "list_quality_issues",
+    "list_import_batches", "execute_select", "find_duplicate_groups",
 }
-WRITE_FUNCTIONS = {
-    "save_outbreak",
-    "delete_record",
-    "remove_duplicate_records",
-    "create_backup",
-}
+WRITE_FUNCTIONS = {"save_outbreak", "delete_record", "remove_duplicate_records", "create_backup"}
 
 
 def _jsonable(value: Any) -> Any:
@@ -85,30 +71,20 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _authorized(self) -> bool:
         expected = self.server.config.password
-        if not expected:
-            return True
-        supplied = self.headers.get("X-GSBTN-Password", "")
-        return supplied == expected
+        return not expected or self.headers.get("X-GSBTN-Password", "") == expected
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") == "/health":
-            if not self._authorized():
-                self._write_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Sai mật khẩu máy chủ."})
-                return
-            self._write_json(
-                HTTPStatus.OK,
-                {
-                    "ok": True,
-                    "app": core.APP_NAME,
-                    "version": core.VERSION,
-                    "mode": "server",
-                    "lan_ip": get_lan_ip(),
-                    "port": self.server.server_port,
-                    "password_required": bool(self.server.config.password),
-                },
-            )
+        if self.path.rstrip("/") != "/health":
+            self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Không tìm thấy endpoint."})
             return
-        self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Không tìm thấy endpoint."})
+        if not self._authorized():
+            self._write_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Sai mật khẩu máy chủ."})
+            return
+        self._write_json(HTTPStatus.OK, {
+            "ok": True, "app": core.APP_NAME, "version": core.VERSION, "mode": "server",
+            "lan_ip": get_lan_ip(), "port": self.server.server_port,
+            "password_required": bool(self.server.config.password),
+        })
 
     def do_POST(self) -> None:  # noqa: N802
         if not self._authorized():
@@ -116,13 +92,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length) if length else b"{}"
-            payload = json.loads(raw.decode("utf-8"))
-        except Exception as exc:
-            self._write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": f"Yêu cầu JSON không hợp lệ: {exc}"})
-            return
-
-        try:
+            payload = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
             if self.path.rstrip("/") == "/rpc":
                 result = self._handle_rpc(payload)
             elif self.path.rstrip("/") == "/import":
@@ -141,8 +111,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         function = getattr(core, function_name, None)
         if not callable(function):
             raise ValueError(f"Máy chủ chưa hỗ trợ hàm {function_name}.")
-        args = payload.get("args") or []
-        kwargs = payload.get("kwargs") or {}
+        args, kwargs = payload.get("args") or [], payload.get("kwargs") or {}
         if not isinstance(args, list) or not isinstance(kwargs, dict):
             raise ValueError("args/kwargs không hợp lệ.")
         return function(*args, **kwargs)
@@ -152,8 +121,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         content = payload.get("content_base64")
         if not isinstance(content, str) or not content:
             raise ValueError("Thiếu nội dung file Excel.")
-        suffix = Path(name).suffix.lower()
-        if suffix not in {".xlsx", ".xlsm"}:
+        if Path(name).suffix.lower() not in {".xlsx", ".xlsm"}:
             raise ValueError("Chỉ chấp nhận file XLSX hoặc XLSM.")
         data = base64.b64decode(content.encode("ascii"), validate=True)
         if len(data) > 100 * 1024 * 1024:
@@ -176,8 +144,12 @@ class LanServerController:
         return bool(self.httpd and self.thread and self.thread.is_alive())
 
     @property
+    def port(self) -> int:
+        return int(self.httpd.server_port if self.httpd else self.config.server_port)
+
+    @property
     def address(self) -> str:
-        return f"http://{get_lan_ip()}:{self.config.server_port}"
+        return f"http://{get_lan_ip()}:{self.port}"
 
     def start(self) -> str:
         if self.running:
