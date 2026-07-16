@@ -111,6 +111,17 @@ try:
         body = json.loads(response.read().decode('utf-8'))
     assert body['ok'] is True
     assert body['port'] == server.port
+    forbidden = os.path.join(os.environ['TEST_DATA_DIR'], 'should_not_exist.db')
+    rpc = Request(
+        f'http://127.0.0.1:{server.port}/rpc',
+        data=json.dumps({'function': 'dashboard_stats', 'kwargs': {'db_path': forbidden}}).encode('utf-8'),
+        headers={'X-GSBTN-Password': 'secret', 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urlopen(rpc, timeout=5) as response:
+        result = json.loads(response.read().decode('utf-8'))
+    assert result['ok'] is True
+    assert not os.path.exists(forbidden)
 finally:
     server.stop()
 '''
