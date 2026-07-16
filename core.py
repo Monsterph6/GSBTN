@@ -1,15 +1,1053 @@
 from __future__ import annotations
-import base64, zlib
-# Static imports ensure PyInstaller collects database and Excel dependencies.
-import csv, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, unicodedata
+
+import csv
 from contextlib import contextmanager
+import hashlib
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import unicodedata
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
-from openpyxl import Workbook, load_workbook
-from openpyxl.utils import get_column_letter
 
-_PAYLOAD = 'c-rlKYi}IKmFV~R6?OYU(X`zfkxHB!)1kZ+IkE_ol$NCY0L=_~dU`k=&UBBvdn7UxfenI-#lpB)8+Y>|2o|v-7+Gg;5bx#!i-;fcfr9=A_m|vr>Rr{<GegRb?*bMi%}m#+*QrydPMufx^K3*qo&Kbp<Z-7%lF>NJOA@AOR)%GgrA4E`pGC!^MjyeWEG^@sa+q`lIDaw<)9@h9MTJ3F3;;;{{ArP;;(JzzZ+R@f6@y8c4CSwnhe;WKU;aFnH702iWxco;mLVGtev5`-QN)E9kbEQ|;xZY<T5%l6rwnEsmIG}{58x*&D38ZUdLW*!q{jhSFXKGy4xx>m_~S{OMsb6|X5%;=A0G_`^!r(U*v+!TfDE&+*Llo;HX17r9(1-=Hrr&Gc<&_VPe-IUe+mP;IQt|TknY9V-=_nw@m_m-XZ`*b0xh(@-&*h*jYco-lTJ4*;!ZEgn?AX5n~rs<LEul)CkHVsT$wikV*&ACR6mPTFCcfrVG;Wb3jgFWtawVRB4{f<ila%1lk!`6Tx7#Xano;&!#qyQhFt*&CK&>`I6xbXJ1aZw&f5Amj9MF~82O}#^A0XgC(p9d9>3>#yMvcsk<rE37ZGCPk7SqtGA5)ve+q~>99*3JV}khk6^YJ2PsoeUF3x_zzCxW}CpV*u=YJTJbO0YEfS><gSULpy0zOxF);3zu1??((6z6%;i(!}<Oh0{;<XPGR>@~f2)>k$=J1e^|i`9FbJMFD|owb$S6`T}c()0XQQRc}QCdF|s+H#{;l=^_=ahUcH1x*cgvX!EhhCrmtu-s|ssm6v`6b?J#cuW!J81TmZ)s+n(DIBHe%X-kJSyeS@kI{tl$xY&|uB~?Ng~@|KmL7Qc;GHBK?S$o85)JOeNS;<BtwA<|=^$w90AM>sSi<5*gHD%%HyRIj+S?M9NFO#eG_*n!7#c-556Elv-G>kAV7g&+I2jjS;~^rW-C12(z1OY-o{W(NbfPdC#9m|VPUpeO?mYn1VX6~p^|~;ZewGs;>^Lg3{Fo#uX^L6_Q9}%fJr2GFW!2W`5cdb$J;m~FJ^`*0A0<WE$qwmH+&Zhcr|zz|H`aERU`G_?UO5>L<2|6mfWUwI`!MW1+H%v|+1*7lEwV`-#hs!oJwM<@o9E9+adGw;mPfcZk&~+8dlzT_3wGM?kzsiK$#B>~f>h;O2j`z3lOloD1b}XmmxB&PVIDr#p<tK(oTLW>+`3}~&7x>Brss(U_VQ^$hUcG;$RmV{ZW8Q1A|>u%tc2WhJPadk0J|4w|Bwzy)2{0q@SSm<JxWr&;s-GCS+$~UG@7J(Z^%AoR(q5Thj8qvYHR1eO<@*izlsnrE(dU6CFQXKcqc(t1&ICwL*zl6_TpTXuWoLw;q#PY4EANxQ-v=+#X&#^gY4q@(*)thutj4Fu@`5*Ap-`PhR1ZhCppqsC+zir^%OQzX+ti&(Yj95U`b{6?*esDj{7St9s=`7%85>7@4fg^D~BnX#jC)&zf1ulJAayzXdsX@3X>EzVR(>cMWT)V!2r=s8x-dz5`PR#*Fd`2E`ub8=l=o+{2<QwB(uDm^q`unquulW12xJVunuQQnVkO~L?NK`-vN6>M1)b4uoZ(n7nT#P>JDr<GQ4>HyOh-n$ON8L>-92_VeF|5={jRqYW!GH4zWWeour>c)(+dac>cvPoQu!@bwZBLzbwU;98nB~Bj6xF^ur-=qPS=8@}a7%f#Yu1Y4IiC@(~Cv)%J&Bw*#V@#(Xx|L@JPF49pIsES-ohp8usJA5SixKa&tZw3DIM+&cqA%K3A;Q?fFyT`KoBu-9l8pnjercl?78!(b2pPr8N2aC(oDY?vJ+cuWp}0R!u{F^0m)ZxS*dfFwtmURuPZg)s(6#gj2(Cv+{t-Y9`3L=td-=OG8ZS>os(WsGuqNf8ag{2=aRaEQhsXU3}bodnRBQX>75RRIzo4>_F}`1(EI=iud67ia$r($)FX3`DA@bW`Lp3bJrYn<v4}i%)lF)v(x78+Pz;R-G7uoCM~82eI5DF@8S0_-t0SDyLh0`4kubH&7WVVS?my_6eoF9B?~An(2p8GBmi#u3!hS=n3m0%JN>7x(0O8AWfvMA$7!Eq>f*egYcL#xnDvfl#w6}eNl2Aiu*(32ZJ!xS+d2sW;ew~Uu{R51n!fN^5v`ttS9anQ`m1b?myhUv)x{K_v;W_D19pC4ul_r@S>9mELF%>?iV9+1Z;!u8ki&B%j_(&8Dw?e0+uL!BHOq)do~sa1>o!X?<SOcGvO%7Q9`TT;i_kHNO>6$$n%KMGrMG`72A<;^ji&7NXmJdL?QC#KSr7)H%ZGXkjXJ9lW;+@L*j!i<7B7<YralJpfM0znLMgMG7QW|<yYL`bMI=6-)b9AU!JK8%*PFzI);h%oJ&0q`9yf$!*O-~XSNV<VB6HQ&!zm0l{@W?9oQEqy)JB;up18vUN-2rfb_a}+0gC-r)sCoRn^*;r;P@^ps-(9mtDm5^PbIDKhO9R>)7H?>&_)!T-iGOx!ef`oO1;@gpI|ZaY`q%yS}MUs6u^Cu65d2-`Z`z16M??rpAoSeP(SYd)HKV$7$p4#{HFDy>TTQ>w+*WNaJsm{)+xj)~PyaXEGXv`7ygeQVk3q%1g*e=_5FzP<BO8N<HkwC6(_w#UPGL^*qlW7l78Vw**vC!hjZ-9s<w_C$aUkH(_E!T$s;`!(=?Rfq^6@Iv^iLpM*sR)r8F=9`>o?2gagQ5{F6JLroVjEzasufq}3sZDLeAf(zl1cv!^5(|EkCeQ6r%j=pz78<U7TCI9(%|3pr(-_s?^li~KsU?g%*1LVUX>9gkoJMh@E8ZUF)+#F8f3m{=O{|K^d$jdm+pdf;CN-#6tK1JPWOEr$S|G%;Ht5lH&&r(>}X0O{p)#VaZ!H_42Q&eFvWri=+YMUt9u%jrYylCfdH<B`@mmlC=aOB|imOMKDoD3&;?S1jt`JZ4uh%I1o3CZc%kIW7#KTgU)i!Cfy)V5aHcz_wSI-U3^DLWl1dHw^z%VSdB%;Bbi>KP`FD%~9IMjP2%v{^tWocZs=+Q3psnGB&p{y@DT)c;e+hSvhlMhA{}^dij2@a0#Nn@3n)QqcyM0B#;FfeZSHNCQMs?H9+PFAKOfa~|akR>8G^wgf7~(x^7^2@(}bkW^u$fVZ>9e8R_SFHm@<l8xaWxV`eu<_fa%I5|i=hw*U%4cy<-RDI40KLzfE>H}bQsOEfsWn)&2;y8^4d6s4q>|yKv_NGziIEjZnTGMQXtuWVQ#z#>+E=iky06AE*5@gU+&E_EpbeyTdc!xG3q9NRir3yI#fuPgt&LDhbFI#Z`U`-*tR<?`}42gE&#(NRv$+$Fmh#(&EXBAG;-8R`>xwFwG>vsWTyQKZW`p)hSK^|3DEQoT)9^nTKd9b~{xw8EsdAI!`S$Vj7e|-zu+iY*`29;XsAQH8!FjApMcH18~+K>vpnsQU0Hx=kO4)gkfC~aR&BT{)bt6WNSGXc4VY9<`lSJl8tWnE1<)6~@zYU;Wg2zn!~DYMjbbuCQC$8;=ApSu)C2oUv#qnt}9HN~cWuBH#6ma89rRRdQynToz`4nV44tAVT2r`1ix(w|KS!(CN}cdjU_DVEx?Y2{2eR!5hp9GgLPQ!!Yh|Ehsj0(lL9d26U$4d*4Io^X_2s|Lo<WX*z^wo^@I)l?vHft?97V_#QQP_->;>Zhr_%9~FuSvs{!)1eK;Q4MJ2>Q%RM*pWviJcOW!>(;}Kjr!9OZ#dIi0~xIT+(H2jofgdQ$iuDmzkS%Qf-@UGOe8F44G_-L4*EY(IHS~mt1+)ckxj}j(81wfSE}I3w%S8uDwD*mo_0Wd4(ntROBqndfw*p<ZgHoPySlYY6s@)It~}h>B@2$}s$2a$;QFn99(YqLFi(y7cI(&6Zt7JpwcCH5Rs3#8TRWQd*Xf33H24}X3sS=|YZ4TYUWDtmozlC^S}<IxsYk0&smw$4LeDbSj+MHWxi&1*zRWcURL0D|QEQ3ks?<UKVm_XPc-(iGX6S1pkxQ&B2UY#d-q=^$tj6VF%7ECq%ro>Jzr@!cP!S4NS6s98t+n<C_Kxlyb?D8XZH4<=Ob^hMcW?i#%Qr>u^s*^=&A&=hD9)*-%sbmv+M_&QHK>k&tId<$Ue#3DgUhug#iWi9U7$Vru*n}@wM{N+7)`QgS8Y+EP&H^vMOST_ieF~aN+P>lqk<37Z3itnm{U_@DuLY1RyVo^O=$F}HzhL-JPL=CcnQ61O#?yFC$tDQzoypHbp5<pfJ+KEJ<1TI8`hd~^sTzTQh-)cWc@53g=m==FMGrb2!a>mI9m1qT@&hDGQIuTZBJ>SKg`0?Ct=!?wK_>!#s}yqT4@-N(u7i0+4mb(5qm6MR2hm>9K$gAS&Z7_S}fxdplaG$55G0c9^+7SApB^7h=^LXruTxn6!ts=MDx^c$pJLIt-I*mhA;-S=e2&CC22DnP@^S$0PWH;z?t3@p7jS=ehiR4`EO8hGd26o<5n^0HgoTz;&mJrF}mZZqT{ba(g5U?IIqPM5b^3@Lj5zS6#}is6KX;FIn{d)18U^>1fQWj_*q1bn8z3Co&S4!03>tq{EG>BEg&}ok{)Ci&;KK$CX5%Koj*+n)JKy<7iYgJrN1(tn`0q;wG1DnY`*%VoIi46=qDc)uYJ^eeea{zNB%y1r~b{3#gP^EeiGjJ*}{!C_v<lRi+&5;<1jCnW~@W!p`kmV8v73J!X?tpvLOtCd9Y9A3IyneJwPj=_bo69Y+DYUStwa`Y`*Ew#||#TPwKWTGpCG7wBsnD(Yw~Wd2Mv_+K1%Yy`^iLOV@V1psvs;!3RW?yXqLvKD=>lbmLmj-HB1?D&f!g6kthV8psQ9HVP|-y^IQbhzGHXNNQvJ(nOpDSl4$szxT?kFD%rpSyjyp_8zWAJI}M+94(r3q3zgaNygrgTwd`Ycyu+|U#MCcc?tGHPoSoDd`SKg;1+IqzHeCfnrdDF*@Xk2e)S!_>hoc}STmvz$rJ5ZzwFcyrgnC7%<L)?qkXcu!K&q91lM?J8gnd~F~O;u78@uS%k3v=FB}eml{VjAT72`#tp)$1-pQ>~gX;peXcgzW(vrO!i~9zLb_`z0g-xN;qrM^)hMQ)k)cVyiSXgb!c=pDE<<osU#$Al316<fkc0Sx-XM|{wZZlbFU-UVQ(<W`xC%2c$ttCCe#T#5ae@5M}{vG2~pa=7ar1dBUsC-r1lr{@q<<@?~U9h+>90kfaPhD&EV8GqLo_uir?8%Ey>G^&*m^?uj%1@{(<`=0CbKm<(@YcSL0Tc$qgJKz4TsPKC^oHF_tRl9=D408p3=tEmucqx46hM_@3`bicy(B7`GbT{#zPZ#<m}V)Od(c<ua7k360Y`^43W~1jA!59sijO7-p~E_)gaT#Ki3+s?x`QVwjI`e{Uhnj@!F6lUDQeeRy~${dS6)7rfW&Emk&0mvCCM@s2?E+Z^@`vg8ZiHGGAx&od|Ppff@9O0l>Hk&@(h&n0L4}@2yeadLmg3eE%G|)dQUv~fU)_lL44Fp4&tJ0%HW)P?Ul9mc4uW{9e(ZTsMTCvTdfv#c@;i(%DZfdG(9TxmDD+=yg2(e=K2W&Aon-a0(KC3bpDJeS1EL9g9qH*FvY+D@yv2b6pst;Aj%sMov5fE>|}reK`57sprBHD;;LQ-B5cSk5lvcgLfCHl;uj+sN0d@GN_2OHF{%<#U5|pnx=|GMs5jmSwzK%bW&=;u4*>?BtVA@({L&@Hsc(@PP*c44jFP5RM26@cifH_MwJ26p4K|Axflos2{bWWTq!^nMz5ELOo1R-`Mzz!t#3Lsl++4A<l6k}e`aXw`@qkBniN|B@hiFp`o`>~dJ7dAJ$PtVAfe#`diU*Y@MEnmO3XPY7&VETdrN55O|1{!5_$6F^ew*?kiuzVq4{gTu_O1lJ2%lP4ppaknRi*SsNsPJZs+QT)?#1&zmcswnh~W^8+5V%dMZ*udWbX083*9JV;OM#b&su@mf%JB!RQ~cQ`V3mp0$O0h!Nu7h5@%a_00PCQ?of`?eU_4gLBh7P9vPsDd~~H%j>Ufk<|cgl5mv1bB?U7mT2zqU{MwEas5kxoDb3cz1Q>fxEAs1{mDSoCe&118@gPrUdxslUeA^FN>q-kDu;w-;+Q2?I&<$BGg$y3RjR^xPjGzL!Dw>b8T17piz^bmwL=%QzwBEfdC{1sTgDAvU9@SP`y_a9Tq*N{f2CHS()1%a?G;P0^bpbr{?ray+u8UJLd3v?gDX#H~XevPuZUUVa8{wo++v~o5N7zvhbL<GC3gbddoE?RSLM;d1$IU*vq83Xs0YfFSC?IeLKr6yDc11;ARg4vvxP*ufRZCVGa<@~dmXKi;9Xc4QqF|%a?hV+?UPZA;tNPfUs4c5t%XH+}9-jggx&>rFn!az}Tio5y>eX(fo(^j%1dlP#MF;vvS-c7VH0<L2ARr3=Hf9te;nt}mk~h0#6)H?l3Lssvnm|;0ycoVVl?o{79R)%ukisQkGKzE5y}&3nT)-W`P?73tT&0;|tF^4nhFxmnV<U9}1H(Hb`^N7x`gj|r10<d49t;)7Z?38}(-w$}jD(E~32#Cy30^4$&Et|hE-0EcBBuB>F}rVQ8Yt_BW--}<y@j+OqJTIqF>GkUbX3=h6;Bk98mWP`)`d&c5}$z>^3-Xd8#>iiVD0}-Hc=<e&Ic63sYHQl^`i;(^Z#ID=L29cAs38#z`axSG+bU;1mW|~6#U<4ih;iXkNFcYKNeR&RqZ#aZob8Pg57}}PP9;v?gT^nRf-oLFhT<;^h_lmY;NfNv;;qiQRO4Dvpg<n;F{S5@JO7iRO`TncZeBTniSB`L9yK-w+CMK(=5PGbALQ8T1m;sr)Z*v2fi#X20&>?^y?27__jhj<nWlqG~fz^dAYo(btwpm=E7NavWq|hsePnV&(x|qpl|ldwhU(p`Z!u_<W1kvpHaykg;ud)xryaSai}EHyZ#;*YNe`LUB!(=8P%j1)x-s+4}uX?M_iF=*4;qXK6Ol58@`Q*$`pjatp~=s0$Z)PH?xt;jn`1yDXbyI>exn>t5)OoGWovL+-YD`fA>R6sSa=nbwFDtO&gw1#0%tZ(P_!F4!{7BQ|St5+4kPTKDkYc;oDL*KmzM6D{y_%Cr+%N(y*_tL8xMmIB|1%Vb(v8_^7}`=^Ha}V%Nb;1^khQ8+*%qbNFd!4Jz<XKn!;RF)qbN5Z+eMPODO*0B7-$9aR4hn|45vecsldRy@q8i@Q(H^hH~Qp}={m7;M12ClteNXz>SS5*0jHo=ZY|`&HuxGX2L?M10(BVP{mGYDpx0*s>_-xC9A%IVtSYG(RyZ{!xCd)`8Y^_?lK11P&wkHFUSsaKvIDE?Q6wSK_9q?7IWS01YBcOu8c?`=>S@>Q|t(Nj22kZ>~G%A&Dp$lzAwxg$)^_rdjheo9er)8ox;On7&RL{v&GXM|EGsq7|jim1YC@5B)~p(xOWH-iuGqpOHhR(SY$RkrOtn(-ygR{){TFp0Qiqvk`9^MviyJ1H&VM##@GXxr>;f14DiJmDZKY`*c$zh`Q;BZRf+)k}=$zop^zVvda8#N;v1%f=k*b%tu_v9mZj5Lz{Os5bm}6gRo_QXf!Hx4;wUG#5A3k78GysQ|xRHps)wG3xnppz)TdHRd{H2p@piyQa6f?*u9uh?K3-3jz!Ma^dR<`ZE5CSy|p5qQqye{g#kEYz%}`lHsUE8tcR^ROtTb_rOmSwm~lg}F+kp~GLIVVYF1ONU0t5?Ob0CrCH6v6bmGw%CUv!~fPOJcbD~Fz!_6tOt1YR{l1^Rt(mJ|?gz0XX;|wp}VS3y&ERepqk2mowXI@JSnn{uiHv-jkk+bekg=Jox?J}&w@;|`F8R(^)4W#=CW&>4TAsQu5aSN%+Cepz&8pP3IaY_1cB-}Bi6_KZ*9!?1#vnh-tO<yEEg`m0RS=ZudZ+bCe0tsPvfH|usWT0mvT$Lwg1P52hjyVA!9XRR+q2)Q8K8VL*o+eCFDTXo9@+G=PAq}Z4U4gEWm^m&xq1`1hR56RW#^<t;%^aAXm*&zKOP#6ExQKLwA_z6PFy%Lskg8RTAu|8yWo-}FjaFl~D%`2QrsMKzp@wyhmn{ZsIh@7A5cQ2sR>+;f$PHGF|McPWxUi*dR`thZVaXlc;97Vqt&&Kf!Sv=sv`N!taF{8$mi^Z=Q7un<Hon`of6NRTxFb6pp{@+6vadZXLesuVPG~o$Y*fZThUf@03`;6XXiKK2le9`?B1tp-ZHjkPByoCA#ihg_%^Qn9S|C4OrU38(zvkV4D!-+31^PO`2{ez>%P>FjA<ECs0G{@ZV*6iG?AYFqIBoZs-(*9Ea`<?2?h(s`n>7Pg<tNa#W4v$5;l8OxYaaV9J|fe!U6Qj|_Wz5se-id6#n?2Mnfy%UeY@m9OsjJ3SS;hSxCGhbGR9=tGO6rx+XS%^O3l68TB0^5i`c2LnIgci;S58Qq{9xYn`);{&CH8cotKeC>vFS_*5xTPQ!v_m4C}TrdLGZST=5#zSAr+tGv@5|Lbw#6seKYr6((;<Y*(WNmF4e}Bv`TkTU7YsGt?1i?g4nUM;(Tw&Z-B2nS`)aofje&eR6vl_o&pS_KMRoTv7NU;+gR4ab;p`82V7f<mjZGb2BDGFB<j7zv~`ioI&BV+LhdMX62YE-rRLnrn|3OU}00H+Tl?D@?%yq=PEgLKhFKODoy+jn?6Vz(kZ4@J50or_`K2}HM(|=u?jXt7^)w!M5j4meEcnsm#siOhA$<#(rVw1<Z1(5ewn^m=~Z)!sR**l`>S50b>5GsBpIDfR!Q2=s^^65%R@J*brM`M7wT;3%1&i^m4Um7+BN*kW?OAp3OF_%kxGu`UvS%gsAtcN40DdWoO)hCl>ks;t{k*z0zpIV%!~_nlVQA-m3Pse!fXs$eKYBu->4X8R04)NLrulf#Z4t_^Z;PYhC;Mhdo>;TuWs~ujH1`$?w)FN{~Pp|VA-%9>v3Z6(+J>l#DEoXl%+ip0URN%M-wW%Q|+zHduk{I=gl~HH4hH8z~ptZIK_p-1oW4jc})0zMvDnmn=aufm>(0yC-#o;q>EGPY{g7v^kORgvZVW)aIfHYmD6ha8`;xzLr|cP%dc|r8On318*oh6y@szZlSL;el2rxzHb5^dxZ9>SZnT`&^{m4FrVmMwm60NY?M;=R);(}O`#mG{hS_EKo}O8Sh38O<jNF<tD`5-|R$;_k53Z$3q3|isf$9VnnRY0o78G=XF@1;rl3_C9768~0G}cTJk)%mi2$4UfcOFJXdv^v^DPpUpZ9{HExURhLYPIOx{w%XJcn<OyBBw-EeY3VZ8rL|;hOpzA>6=@=y|+DzmJao_ftDO2wWDdZ1cB(Sp(l&2CHua&zO~cd-bI_^eR4u)e@dDs*MsXkv>*FE^~rlH8xPw%P@<3c)c1ngruW2xMEfi|fSAg@yN>UCs#4i3<HTAhyTFnrJtwr-Y%&><bFXoOj!5Ubj%gb(?*%=<k>3NrQXOki<i)Ppc@v;zx&?Hr@g`~V@g#PZ*E1k7bS*bhEr*-Rmh{F%>ZID1YFoh-6Zt>_Eq_m7WaxnzPBD1R!PDm;QO`4I)RD!cwkoFlH^w8WDbN!j1zN77VD_v7Ed`N3t#7es-VTW4uMZQe-#xYC)?_>(fXp#sVAuX-ww>HaEQeKvex@&-wPa?_G*^F3ng1+M8P0-wX;~hofy_G=Xj#PqkuxmNGlB(rzAxvrr!UyFWpk6SS}Qk_OMYJnrm;Rcdv|?>k*SNQur(LcoDQX7c^=ji%t2mm7$DhdfrYC1Jj+C;9oDIEA_NxR%|ae`SIm){+~vpQyyVTDx}4@4w~lIWr@hf$-6gB{A8ze7U-QY`?faVy)bm^Y81@iI@=bqlVZY){JZED{XsK&3j8Lk*WNYO8d+qJE&^&LfzuP9)uf6!RsuaF<y|&{rE5l)D24Yq=+B>W5=FY>-rm{@<!NT0rqxO#ZI?zlbm+67?&AAZhN*c&fDbnk$Z;|G8s+<GCj4Qyd`?bAuf_HhqvshD%GNnkiUE75Vu>zBGwLlq(sLW*m${soW&4K4K5?<1m*aBtC0wC;*Rcc}gpls$L0?)V+v%~lM^qn1mfIdn}@#>SsH<TZax!?CM_gVtvxl^TZI7T=%@bLzUELL`O4{|)ZYUG4zdtqfq%cDD212(Ng3)-W)Ca@-kA|cIg&9(c<E<!Gn_6F2iAnmO++83uN+L_&#x$W%Iced|8d_eAeC{Ssa-``$qZ)3TMRk8+C59%sytZ%OGlD8|zeUlPQpq)f~8)7OE-`<0iikdmQ<mU8-3zV_XNp%F`_h5J|chS{o_D6qxn#JG;kX~$qT(B7Y54x6gV)aD#jnVn#=!S9GN<!-&-zL|u*V5Rusn-%7#RsLgZ;r0;uqfgl>ih~{P#BshFxQ2}tuIAjw-)~T1cp}~$r!avJ2uvJ9><waV5QccP7{}qT54CfLP6i`LURT}<3DK@;?C;*jfb0CJMz_xUeYt)7d<=Xjla=Yf2FYY7GZblkBYmo^`_Rj!sGBgdNKfY>U3(nlQl>08ee6H<==jFof`40yfSX?33F%RBJ9I;of<%FM`1gTNro5g&+9-g5_~bii^mHa2(D{L2A5SEQ}Uh`He7AA5_{w6eN?T<!s{Dni8>iHpYVv!ss}Z<c+6?=lZfMq+z{IVDk3K%nh30B5!gnAEtx%zdm@sRRq~;q6Dw<rllZIKMI&JaW)iSPEvF45xShMu^KsesNFCw3($YGlQO_=<f33{BFL?Lb`p)k97JOm0sZ+*rg>sqkTX~{$nBe+#pB=o4t@0voK0b+uat^nk8d2-xNt_>xdri~%@<ql9USl7yPI)v~;shmlIA1^eF<VRfsajXNWE>vEQhZa7Iz{rcSe?2&WBv4_x}h-&*9lF7AFo9Fj|XucJL4M1VIGb|7y^&nQc(vSbIL0#IYd=L-@A6gicYV2x_`n9HYSH6JQ6&Wnw_23Zv)9_uToRb^w)c7kk)Ivv=W}poIUY9Q=Vh92HG!i6ni+WeexQ4V_Kk;HE@yMTy-hm#-bisF9uNs+N)VEHNqcAbGsnlN@5M0Rn4+{2|m_vPPFfdoxcq7j~XK%ABPfY-6h?yP4sG{VZKdi*<5k;bOz>xAjv-W=U-vfgS!I`$J5V?nQM%qx-vopo3$j`De@|-qGg*`T%c2Yj7cRu&b%?JqDNM?)<mE#1!4(z@taI+NtKg1zJG677Zv%%8+IjrnK?73c&(~S_6ePg!lUM5K!5orTNQ;10f7lNfx9jQs?@*SSx9wQ_F>p}tM~Z1cOnsqxnLR2YxQ??AGL;|mdYllb-ilmDqWIOaX}&X@7~>M<4wi9r|iAPMya7GAWe$s8)VT3#v-5ZztUYMVEE(*^+8<nW7;A5@$H?k_ZQD2{#hZ$MowRL9Cl_Ng!4;CwKVaXO9-M?Z9qF|%6SF8P85}3MT$T4>47bS-AUIT@m_{dyX7}gvuwv1+Bh_m_RND(mCxE`{7@3}Nw3R%7;4{RKGVNQPji78Z66uFBJ|Y)+)0EbuvL=rso$9DRzvHuPywxk+3&Z|-*SvO7HLKx^m-h7jp;5omG)Q>Yw+UiU+_Hw7iV9j2kwT18&0JeETD}nG^YCFT-`fvrq>RR$(_Yl&)VCV#|KAWPs1l>-Yu5&HS%pZ+->$E<!mBI3mw8#Zeuw#xNGTHJl(&9g}d)Pe1ORSG(8fsP{oe>*H5C;<+rb!t}njY`O9xR%*gdVGjQVW$(irFtf0<;duzacV3;!uO&ZHvzAmP8ou2U0^<cTes2X*SIudAF3V~VfQS-PlneI#4+ZLxdFv*hZe07wMmD8VTUO%RKbYOx8!*@x6zN%~ME4k{pcH`33-8|;>%=tDva>U{*+P;i$hv9wWI!^*OKfj`9j$e}^3AU5Se>9BC`0EssE-w=?gm>_@@RRWs-5*RrN#|6ym^6j=yehkU+r{Nfzh=>`Z)hp4H)(O*kz8_3<x^2K@yC{t1urC1m#Q(#40C0L4Igr&=2FYcm+Nnh^3`Dum2zFP#wygdT%kO;%XHW+^NJVJuTkM?n5$~}+H59J%lZ^wtFWay8b6T;syg$_D<C!4OZO6Lx##{R!Z^>K311WT^cFMOe;-Zu^8Q_G=Ti4aO6dDvhryigJky`>Ql`u|zDZN2b=R|A6)SOX<1LUD!K>qi51~`U_-gwmkib0l5t&r9Q21F`uocS4O1S+=@{fHzj~BC#d^{BIIBDhVi}#jigi^uYA0aaEC1y>At0(WT!x8jR7m&c4GTx>#&Azcp6Trho86(TS9Fyq$w-ajDNC$*31W$j4ePHrv{<!7IB*opN*NapBvNWoj#&_Iwn@p^E!esm>>`-~KwtfG>la-C#_V$yN-QAVddr&|>9&E3?v$^tQyZvBeWwrg}y_MC64>zB%w=>qyP1<$DFs4klFVeB7>6RB~|B5!9KZWE(HqkoBGdPYH{niAyXWoSS21uM3y`4{v$s>G)P3w|oABPyuXQQ9N!l1C%!(5U`qBOb)rCwbKh39+w6+IUvD}%JL9^DEf%pxU-)USBB@s628u-pnPHWP!dssVz$hL$IrkvH1}>t&py<gsUD(cZUYBzL?ZpA4Hz_E>3msTXiD>GzW(876=#&Q?@B@~rSP3XA!Qn;u%_)A;c)N#kWEL_}E+c=0lO!_AE%Iq>Lu^(}>Tj=^WRX2qix`_b(C4iH`lR}P^&oCZ{AlTs_7!U^9Ok%UH+V2e4P@JB2iB%a%AD*Li03i*Lg5hzCF>-mxe)6;Nf)<Vsg=)Tp@<Cv<FQtF85t=v*QP0Ea0nOixK%rZVyL5i}^C>{=J!p>rEQOk>pk6ZnWGEDis6=mb&W;Yx5v{*^nNXFY}3EGnlF$*{D05o1kEXOg`81Yv%iM!_B5{QS|#(_H|B|+3=qgEUL(M+*Cnu@B&SnIx0)BFfuigYU=iwp4Z2b$eVj!lcy+{11c_C*2QH~?GwEzvXm<g4F8ts~zF#vWuS2Jyu(yH+;kw``1^$G$3co^$JrzcZeGXFUDRc>103^uL1fbRfiFQ#&pV0;m5!8AoBhyoY5wrAhUY@UF@at-tUAMCd=O7doB&g1?NSWu~HI-Q0#tQD<RcW><GG9UF7CV(F+c-`N`rEvU*~A<c6@mjld|`TWl`_l2k-Q>Ppb631Ww*_w=<gEXSa$|joGWrUqm9ZcQP<T#e$BJ_GmEh*Rzw~H_m*sqEvmoh@DabCg>Emyo=KR{o;gQKB7j2kO=+8aAF2wxf-88px2TIOL#Hm2fZJo=(SZ+%UFxv`d*7|OQP`wta}#x?+ir`GPCe~yVe)yu~98oJ&Xs$c>Uk{(Ph&i;4m0Aof(fZM?@Qvgxl3}9<WXD%?^(6uCUPKx|@G{MZ6!=H+G$nf;@?1n~hMlF+3VBk?ai+oLFRdle=5pUkf0=@l!?CoLp3f;b<HK0rXj4I7H<LbTxPObD5y*Cyt=|Z5m))@+Ir=1&4q0zW%yMaFX^d;8bwGXe2uJt<C?p@owwj<u<9_9x$Ny?p-)ps90=&Y@8lbf)S4w7&L;v{BDi3Xi+oDMoCw1d-Duj}#j_>(dj(p$zYF_M5c$Y0b$XH8$A!d~vGI%ypYvu@MX&1={JTn7&0<K<yE>h?l1UZU^w#aCm)M`wi72}F2-b-Bq{77^a{-r~ZNc29!B)+B`s>|t}16a@-p*`d~eSU@@lzJhr7?euAS0qyqgxPZ4thrI-0P&g5<k)?Th%uY}?Ixbq{VOXM3twocp6nK`w6+1C9OlAcu#m&jCGx$~^b|XnZw#(x^%xrT5#tE159w+Ug)dOWjy)ehd&9;w=G9ESi*Kv--JHZ}Kz3Z;roI3PT@8E_}gWSH^iyz%gL5?T4Zhvo)eD6Bmy9AZ`jsFMs=;T5'
-_SOURCE = zlib.decompress(base64.b85decode(_PAYLOAD)).decode("utf-8")
-exec(compile(_SOURCE, __file__, "exec"), globals(), globals())
+from openpyxl import Workbook, load_workbook
+
+APP_NAME = "Giám sát dịch bệnh"
+VERSION = "0.3.0"
+
+
+def _base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = _base_dir()
+
+
+def _user_data_root() -> Path:
+    """Thư mục dữ liệu tách khỏi bộ cài để cài mới/cập nhật không đụng CSDL."""
+    override = os.environ.get("GIAM_SAT_DICH_BENH_DATA_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "CDC_HaiPhong" / "GiamSatDichBenh"
+    return Path.home() / ".giam_sat_dich_benh"
+
+
+USER_DATA_DIR = _user_data_root()
+DATA_DIR = USER_DATA_DIR / "data"
+BACKUP_DIR = USER_DATA_DIR / "backups"
+UPDATE_CACHE_DIR = USER_DATA_DIR / "update_cache"
+DB_PATH = DATA_DIR / "giam_sat_dich_benh.db"
+
+for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
+
+CASE_FIELDS: list[tuple[str, str]] = [
+    ("STT", "source_stt"),
+    ("Mã số", "case_code"),
+    ("Họ tên", "full_name"),
+    ("Ngày sinh", "birth_date_raw"),
+    ("Nghề nghiệp", "occupation"),
+    ("Nơi làm việc/ Học tập", "workplace"),
+    ("Tỉnh (Nơi làm việc)", "workplace_province"),
+    ("Xã (Nơi làm việc)", "workplace_commune"),
+    ("Thôn (Nơi làm việc)", "workplace_village"),
+    ("Dân tộc", "ethnicity"),
+    ("Giới tính", "gender"),
+    ("CMND", "national_id"),
+    ("Điện thoại", "phone"),
+    ("Nơi ở hiện nay", "current_address"),
+    ("Tỉnh", "province"),
+    ("Xã", "commune"),
+    ("Thôn", "village"),
+    ("Kinh độ", "longitude"),
+    ("Vĩ độ", "latitude"),
+    ("Chẩn đoán chính", "main_diagnosis"),
+    ("Phân độ bệnh", "severity"),
+    ("Chẩn đoán bệnh kèm theo", "comorbidity_diagnosis"),
+    ("Tình trạng tiêm chủng", "vaccination_status"),
+    ("Số lần tiêm, uống", "vaccination_doses"),
+    ("Phân loại chẩn đoán", "diagnosis_classification"),
+    ("Lấy mẫu xét nghiệm", "sample_collected"),
+    ("Ngày lấy mẫu", "sample_date"),
+    ("Đơn vị xét nghiệm", "lab_unit"),
+    ("Loại xét nghiệm", "test_type"),
+    ("Kết quả", "test_result"),
+    ("Ghi chú", "notes"),
+    ("Tình trạng hiện nay", "current_status"),
+    ("Tiền sử dịch tễ", "epidemiological_history"),
+    ("Ngày khởi phát", "onset_date"),
+    ("Ngày nhập viện", "admission_date"),
+    ("Ngày ra viện/tử vong", "discharge_or_death_date"),
+    ("Biến chứng", "complications"),
+    ("Tên người báo cáo", "reporter_name"),
+    ("SĐT người báo cáo", "reporter_phone"),
+    ("Email người báo cáo", "reporter_email"),
+    ("Đơn vị báo cáo", "reporting_unit"),
+    ("Tỉnh đơn vị báo cáo", "reporting_province"),
+    ("Cơ sở điều trị", "treatment_facility"),
+    ("Trạng thái", "record_status"),
+    ("Thời gian báo cáo", "report_datetime"),
+    ("Chẩn đoán thay đổi gần nhất", "latest_diagnosis_change"),
+    ("Tình trạng thay đổi gần nhất", "latest_status_change"),
+    ("Thời gian sửa", "modified_datetime"),
+]
+
+OUTBREAK_FIELDS: list[tuple[str, str]] = [
+    ("STT", "source_stt"),
+    ("Tên bệnh", "disease"),
+    ("Địa điểm xảy ra ổ dịch", "location"),
+    ("Ngày khởi phát trường hợp bệnh đầu tiên", "first_onset_date"),
+    ("Ngày ổ dịch kết thúc hoạt động", "end_date"),
+    ("Trạng thái", "status"),
+    ("Số ca mắc", "case_count"),
+    ("Số ca tử vong", "death_count"),
+    ("Số mẫu XN", "sample_count"),
+    ("Số mẫu (+)", "positive_count"),
+    ("Ngày báo cáo", "report_datetime"),
+    ("Đơn vị báo cáo", "reporting_unit"),
+    ("Tỉnh báo cáo", "reporting_province"),
+    ("Ngày nhận báo cáo ổ dịch bệnh đầu tiên", "first_report_received_date"),
+    ("Ngày khởi phát trường hợp bệnh cuối cùng", "last_onset_date"),
+]
+
+CASE_LABELS = {db: label for label, db in CASE_FIELDS}
+OUTBREAK_LABELS = {db: label for label, db in OUTBREAK_FIELDS}
+
+DATE_FIELDS = {
+    "sample_date",
+    "onset_date",
+    "admission_date",
+    "discharge_or_death_date",
+    "first_onset_date",
+    "end_date",
+    "first_report_received_date",
+    "last_onset_date",
+}
+DATETIME_FIELDS = {"report_datetime", "modified_datetime"}
+INTEGER_FIELDS = {"source_stt", "case_count", "death_count", "sample_count", "positive_count"}
+FLOAT_FIELDS = {"longitude", "latitude"}
+
+
+@dataclass
+class ImportSummary:
+    file_name: str
+    entity_type: str
+    detected_sheet: str
+    rows_read: int = 0
+    inserted: int = 0
+    duplicates: int = 0
+    skipped: int = 0
+    issues: int = 0
+
+    def as_text(self) -> str:
+        kind = "ca bệnh" if self.entity_type == "case" else "ổ dịch"
+        return (
+            f"{self.file_name} — {kind}: đọc {self.rows_read}, thêm {self.inserted}, "
+            f"trùng {self.duplicates}, bỏ qua {self.skipped}, cảnh báo {self.issues}."
+        )
+
+
+@contextmanager
+def _connect(db_path: Path | str = DB_PATH):
+    """Mở kết nối SQLite theo phạm vi và luôn đóng file khi rời khối with.
+
+    sqlite3.Connection.__exit__ chỉ commit/rollback chứ không đóng kết nối;
+    trên Windows điều đó giữ khóa file .db và làm sao lưu/xóa thất bại.
+    """
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db(db_path: Path | str = DB_PATH) -> None:
+    with _connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_stt INTEGER,
+                case_code TEXT,
+                full_name TEXT,
+                birth_date_raw TEXT,
+                birth_year INTEGER,
+                occupation TEXT,
+                workplace TEXT,
+                workplace_province TEXT,
+                workplace_commune TEXT,
+                workplace_village TEXT,
+                ethnicity TEXT,
+                gender TEXT,
+                national_id TEXT,
+                phone TEXT,
+                current_address TEXT,
+                province TEXT,
+                commune TEXT,
+                village TEXT,
+                longitude REAL,
+                latitude REAL,
+                main_diagnosis TEXT,
+                severity TEXT,
+                comorbidity_diagnosis TEXT,
+                vaccination_status TEXT,
+                vaccination_doses TEXT,
+                diagnosis_classification TEXT,
+                sample_collected TEXT,
+                sample_date TEXT,
+                lab_unit TEXT,
+                test_type TEXT,
+                test_result TEXT,
+                notes TEXT,
+                current_status TEXT,
+                epidemiological_history TEXT,
+                onset_date TEXT,
+                admission_date TEXT,
+                discharge_or_death_date TEXT,
+                complications TEXT,
+                reporter_name TEXT,
+                reporter_phone TEXT,
+                reporter_email TEXT,
+                reporting_unit TEXT,
+                reporting_province TEXT,
+                treatment_facility TEXT,
+                record_status TEXT,
+                report_datetime TEXT,
+                latest_diagnosis_change TEXT,
+                latest_status_change TEXT,
+                modified_datetime TEXT,
+                source_file TEXT NOT NULL,
+                source_sheet TEXT,
+                source_row INTEGER,
+                row_hash TEXT NOT NULL UNIQUE,
+                imported_at TEXT NOT NULL,
+                raw_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS outbreaks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_stt INTEGER,
+                disease TEXT,
+                location TEXT,
+                admin_area TEXT,
+                first_onset_date TEXT,
+                end_date TEXT,
+                status TEXT,
+                case_count INTEGER DEFAULT 0,
+                death_count INTEGER DEFAULT 0,
+                sample_count INTEGER DEFAULT 0,
+                positive_count INTEGER DEFAULT 0,
+                report_datetime TEXT,
+                reporting_unit TEXT,
+                reporting_province TEXT,
+                first_report_received_date TEXT,
+                last_onset_date TEXT,
+                source_file TEXT NOT NULL,
+                source_sheet TEXT,
+                source_row INTEGER,
+                row_hash TEXT NOT NULL UNIQUE,
+                imported_at TEXT NOT NULL,
+                raw_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS import_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                file_path TEXT,
+                entity_type TEXT NOT NULL,
+                sheet_name TEXT,
+                rows_read INTEGER DEFAULT 0,
+                inserted INTEGER DEFAULT 0,
+                duplicates INTEGER DEFAULT 0,
+                skipped INTEGER DEFAULT 0,
+                issue_count INTEGER DEFAULT 0,
+                imported_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS data_quality_issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                entity_id INTEGER,
+                source_file TEXT,
+                source_row INTEGER,
+                severity TEXT NOT NULL,
+                issue_type TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
+            CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
+            CREATE INDEX IF NOT EXISTS idx_cases_diag ON cases(main_diagnosis);
+            CREATE INDEX IF NOT EXISTS idx_cases_onset ON cases(onset_date);
+            CREATE INDEX IF NOT EXISTS idx_cases_commune ON cases(commune);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_disease ON outbreaks(disease);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_status ON outbreaks(status);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_onset ON outbreaks(first_onset_date);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_admin ON outbreaks(admin_area);
+            CREATE INDEX IF NOT EXISTS idx_quality_type ON data_quality_issues(entity_type, severity);
+            """
+        )
+
+
+def strip_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def normalize_key(value: Any) -> str:
+    text = strip_text(value).lower()
+    text = text.replace("đ", "d")
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def normalize_header(value: Any) -> str:
+    """Chuẩn hóa tiêu đề Excel, chịu được xuống dòng, dấu *, /, ngoặc và đánh số cột."""
+    text = normalize_key(value).replace("\n", " ").replace("\r", " ")
+    text = re.sub(r"^\s*\d+[\.\)]\s*", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_date_value(value: Any, with_time: bool = False) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes") if with_time else value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = strip_text(value)
+    fmts = (
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%H:%M %d/%m/%Y",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    )
+    for fmt in fmts:
+        try:
+            dt = datetime.strptime(text, fmt)
+            return dt.isoformat(sep=" ", timespec="minutes") if with_time else dt.date().isoformat()
+        except ValueError:
+            continue
+    return text
+
+
+def parse_int(value: Any) -> int:
+    if value is None or value == "":
+        return 0
+    try:
+        return int(float(str(value).replace(",", ".")))
+    except (ValueError, TypeError):
+        return 0
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (ValueError, TypeError):
+        return None
+
+
+def extract_birth_year(value: Any) -> int | None:
+    text = strip_text(value)
+    years = re.findall(r"(?:19|20)\d{2}", text)
+    if years:
+        return int(years[-1])
+    return None
+
+
+def extract_admin_area(location: str) -> str:
+    if not location:
+        return ""
+    parts = [p.strip() for p in re.split(r"\s+-\s+", location) if p.strip()]
+    if len(parts) >= 2:
+        if "hải phòng" in normalize_key(parts[-1]) and len(parts) >= 2:
+            return parts[-2]
+        return parts[-1]
+    patterns = re.findall(r"(?:Phường|Xã|Đặc khu|Thị trấn)\s+[^,;]+", location, flags=re.I)
+    return patterns[-1].strip() if patterns else ""
+
+
+def _row_hash(entity_type: str, payload: dict[str, Any]) -> str:
+    canonical = {k: payload.get(k, "") for k in sorted(payload) if k not in {"source_file", "source_sheet", "source_row"}}
+    raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(entity_type.encode("utf-8") + b"|" + raw).hexdigest()
+
+
+CASE_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "source_stt": ("số thứ tự", "stt."),
+    "case_code": ("mã ca bệnh", "mã bệnh nhân", "mã trường hợp", "mã số ca bệnh"),
+    "full_name": ("họ và tên", "tên bệnh nhân", "họ tên bệnh nhân"),
+    "birth_date_raw": ("năm sinh", "ngày tháng năm sinh"),
+    "national_id": ("cccd", "cmnd cccd", "số cmnd", "số cccd", "cccd cmnd"),
+    "phone": ("số điện thoại", "sđt", "điện thoại liên hệ"),
+    "current_address": ("địa chỉ hiện nay", "nơi cư trú hiện nay", "địa chỉ nơi ở hiện nay"),
+    "province": ("tỉnh thành phố", "tỉnh tp", "tỉnh nơi ở"),
+    "commune": ("phường xã", "xã phường", "xã nơi ở"),
+    "village": ("thôn tổ", "thôn xóm", "tổ dân phố"),
+    "main_diagnosis": ("tên bệnh", "chẩn đoán", "bệnh chẩn đoán chính"),
+    "onset_date": ("ngày phát bệnh", "ngày bắt đầu khởi phát"),
+    "report_datetime": ("ngày báo cáo", "thời điểm báo cáo", "ngày giờ báo cáo"),
+    "reporting_unit": ("cơ quan báo cáo", "đơn vị gửi báo cáo"),
+    "record_status": ("trạng thái bản ghi", "tình trạng bản ghi"),
+}
+
+OUTBREAK_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "source_stt": ("số thứ tự", "stt."),
+    "disease": ("bệnh", "tên dịch bệnh"),
+    "location": ("địa điểm ổ dịch", "nơi xảy ra ổ dịch", "địa chỉ ổ dịch"),
+    "first_onset_date": ("ngày khởi phát ca đầu tiên", "ngày khởi phát trường hợp đầu tiên"),
+    "end_date": ("ngày kết thúc ổ dịch", "ngày ổ dịch kết thúc"),
+    "case_count": ("số mắc", "tổng số ca mắc"),
+    "death_count": ("số tử vong", "tổng số ca tử vong"),
+    "sample_count": ("số mẫu xét nghiệm", "tổng số mẫu xn"),
+    "positive_count": ("số mẫu dương tính", "số mẫu dương", "số mẫu xn dương tính"),
+    "report_datetime": ("thời gian báo cáo", "ngày giờ báo cáo"),
+    "reporting_province": ("tỉnh đơn vị báo cáo", "tỉnh thành báo cáo"),
+    "first_report_received_date": ("ngày nhận báo cáo đầu tiên", "ngày nhận báo cáo ổ dịch đầu tiên"),
+    "last_onset_date": ("ngày khởi phát ca cuối cùng", "ngày khởi phát trường hợp cuối cùng"),
+}
+
+
+def _make_header_map(fields: Sequence[tuple[str, str]], aliases: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for label, db_field in fields:
+        result[normalize_header(label)] = db_field
+        for alias in aliases.get(db_field, ()):
+            result[normalize_header(alias)] = db_field
+    return result
+
+
+def _mapping_for_row(row: Sequence[Any], header_map: dict[str, str]) -> dict[int, str]:
+    mapping: dict[int, str] = {}
+    used_fields: set[str] = set()
+    for idx, value in enumerate(row):
+        key = normalize_header(value)
+        field = header_map.get(key)
+        if field and field not in used_fields:
+            mapping[idx] = field
+            used_fields.add(field)
+    return mapping
+
+
+def _find_header_row(ws) -> tuple[str, int, dict[int, str]] | None:
+    case_map = _make_header_map(CASE_FIELDS, CASE_HEADER_ALIASES)
+    outbreak_map = _make_header_map(OUTBREAK_FIELDS, OUTBREAK_HEADER_ALIASES)
+    best: tuple[int, str, int, dict[int, str]] | None = None
+
+    # Một số hệ thống xuất XLSX khai báo dimension=A1 dù thực tế có nhiều cột/dòng.
+    # reset_dimensions buộc openpyxl đọc theo dữ liệu XML thực tế.
+    reset = getattr(ws, "reset_dimensions", None)
+    if callable(reset):
+        reset()
+
+    for row_no, row in enumerate(ws.iter_rows(min_row=1, max_row=60, values_only=True), start=1):
+        case_mapping = _mapping_for_row(row, case_map)
+        outbreak_mapping = _mapping_for_row(row, outbreak_map)
+        case_fields = set(case_mapping.values())
+        outbreak_fields = set(outbreak_mapping.values())
+
+        case_core = len(case_fields & {
+            "case_code", "full_name", "birth_date_raw", "main_diagnosis",
+            "onset_date", "report_datetime", "reporting_unit"
+        })
+        outbreak_core = len(outbreak_fields & {
+            "disease", "location", "first_onset_date", "case_count",
+            "report_datetime", "reporting_unit"
+        })
+
+        if "full_name" in case_fields and case_core >= 3 and len(case_fields) >= 6:
+            candidate = (len(case_fields), "case", row_no, case_mapping)
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+        if {"disease", "location"}.issubset(outbreak_fields) and outbreak_core >= 4 and len(outbreak_fields) >= 5:
+            candidate = (len(outbreak_fields), "outbreak", row_no, outbreak_mapping)
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+
+    if best:
+        _, entity_type, row_no, mapping = best
+        return entity_type, row_no, mapping
+    return None
+
+
+def detect_excel(path: Path | str) -> tuple[str, str, int, dict[int, str]]:
+    wb = load_workbook(path, read_only=True, data_only=True)
+    diagnostics: list[str] = []
+    try:
+        for ws in wb.worksheets:
+            found = _find_header_row(ws)
+            if found:
+                entity_type, header_row, mapping = found
+                return entity_type, ws.title, header_row, mapping
+            diagnostics.append(ws.title)
+    finally:
+        wb.close()
+    sheets = ", ".join(diagnostics) if diagnostics else "không có trang tính"
+    raise ValueError(
+        "Không nhận diện được cấu trúc file ca bệnh hoặc ổ dịch. "
+        f"Đã kiểm tra: {sheets}. Hãy bảo đảm file có hàng tiêu đề chứa các cột như "
+        "Họ tên/Mã số/Ngày khởi phát hoặc Tên bệnh/Địa điểm xảy ra ổ dịch."
+    )
+
+
+def _normalize_payload(entity_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    clean: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in DATE_FIELDS:
+            clean[key] = parse_date_value(value, with_time=False)
+        elif key in DATETIME_FIELDS:
+            clean[key] = parse_date_value(value, with_time=True)
+        elif key in INTEGER_FIELDS:
+            clean[key] = parse_int(value)
+        elif key in FLOAT_FIELDS:
+            clean[key] = parse_float(value)
+        else:
+            clean[key] = strip_text(value)
+    if entity_type == "case":
+        clean["birth_year"] = extract_birth_year(clean.get("birth_date_raw"))
+    else:
+        clean["admin_area"] = extract_admin_area(clean.get("location", ""))
+    return clean
+
+
+def _is_empty_payload(entity_type: str, payload: dict[str, Any]) -> bool:
+    if entity_type == "case":
+        fields = ("case_code", "full_name", "main_diagnosis", "onset_date", "report_datetime")
+    else:
+        fields = ("disease", "location", "first_onset_date", "report_datetime")
+    return not any(payload.get(k) not in (None, "", 0) for k in fields)
+
+
+def _date_obj(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _quality_checks(entity_type: str, payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    issues: list[tuple[str, str, str]] = []
+    if entity_type == "case":
+        if not payload.get("full_name"):
+            issues.append(("error", "Thiếu họ tên", "Ca bệnh chưa có họ tên."))
+        if not payload.get("case_code"):
+            issues.append(("warning", "Thiếu mã số", "Ca bệnh chưa có mã số trên hệ thống."))
+        if not payload.get("main_diagnosis"):
+            issues.append(("error", "Thiếu chẩn đoán", "Ca bệnh chưa có chẩn đoán chính."))
+        if not payload.get("onset_date"):
+            issues.append(("warning", "Thiếu ngày khởi phát", "Không xác định được ngày khởi phát."))
+        onset = _date_obj(payload.get("onset_date", ""))
+        report = _date_obj(payload.get("report_datetime", ""))
+        if onset and report:
+            delay = (report.date() - onset.date()).days
+            if delay < 0:
+                issues.append(("error", "Ngày báo cáo không hợp lệ", "Thời gian báo cáo trước ngày khởi phát."))
+            elif delay > 2:
+                issues.append(("warning", "Báo cáo muộn", f"Báo cáo sau khởi phát {delay} ngày."))
+        lon, lat = payload.get("longitude"), payload.get("latitude")
+        if lon is not None and not (-180 <= lon <= 180):
+            issues.append(("error", "Kinh độ không hợp lệ", f"Kinh độ {lon} ngoài khoảng -180 đến 180."))
+        if lat is not None and not (-90 <= lat <= 90):
+            issues.append(("error", "Vĩ độ không hợp lệ", f"Vĩ độ {lat} ngoài khoảng -90 đến 90."))
+    else:
+        if not payload.get("disease"):
+            issues.append(("error", "Thiếu tên bệnh", "Ổ dịch chưa có tên bệnh."))
+        if not payload.get("location"):
+            issues.append(("error", "Thiếu địa điểm", "Ổ dịch chưa có địa điểm xảy ra."))
+        if payload.get("positive_count", 0) > payload.get("sample_count", 0):
+            issues.append(("error", "Số mẫu không hợp lệ", "Số mẫu dương tính lớn hơn tổng số mẫu xét nghiệm."))
+        if payload.get("death_count", 0) > payload.get("case_count", 0):
+            issues.append(("error", "Số tử vong không hợp lệ", "Số tử vong lớn hơn số ca mắc."))
+        status = normalize_key(payload.get("status"))
+        if "da ket thuc" in status and not payload.get("end_date"):
+            issues.append(("error", "Thiếu ngày kết thúc", "Ổ dịch đã kết thúc nhưng chưa có ngày kết thúc hoạt động."))
+        if "dang hoat dong" in status and payload.get("end_date"):
+            issues.append(("error", "Trạng thái không khớp", "Ổ dịch đang hoạt động nhưng đã có ngày kết thúc."))
+        first = _date_obj(payload.get("first_onset_date", ""))
+        last = _date_obj(payload.get("last_onset_date", ""))
+        end = _date_obj(payload.get("end_date", ""))
+        report = _date_obj(payload.get("report_datetime", ""))
+        if first and last and last < first:
+            issues.append(("error", "Ngày khởi phát không hợp lệ", "Ca cuối khởi phát trước ca đầu."))
+        if first and end and end < first:
+            issues.append(("error", "Ngày kết thúc không hợp lệ", "Ngày kết thúc trước ngày khởi phát ca đầu."))
+        if last and end and end < last:
+            issues.append(("error", "Ngày kết thúc không hợp lệ", "Ngày kết thúc trước ngày khởi phát ca cuối."))
+        if first and report:
+            delay = (report.date() - first.date()).days
+            if delay < 0:
+                issues.append(("error", "Ngày báo cáo không hợp lệ", "Ngày báo cáo trước ngày khởi phát ca đầu."))
+            elif delay > 2:
+                issues.append(("warning", "Báo cáo muộn", f"Báo cáo ổ dịch sau khởi phát ca đầu {delay} ngày."))
+        if not payload.get("first_report_received_date"):
+            issues.append(("info", "Thiếu ngày nhận báo cáo", "Chưa có ngày nhận báo cáo ổ dịch bệnh đầu tiên."))
+        if not payload.get("last_onset_date"):
+            issues.append(("info", "Thiếu ngày khởi phát ca cuối", "Chưa có ngày khởi phát trường hợp bệnh cuối cùng."))
+    return issues
+
+
+def import_excel(path: Path | str, db_path: Path | str = DB_PATH) -> ImportSummary:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    init_db(db_path)
+    entity_type, sheet_name, header_row, mapping = detect_excel(path)
+    summary = ImportSummary(path.name, entity_type, sheet_name)
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet_name]
+    reset = getattr(ws, "reset_dimensions", None)
+    if callable(reset):
+        reset()
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    consecutive_empty = 0
+    try:
+        with _connect(db_path) as conn:
+            for row_no, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1):
+                raw_payload = {field: row[idx] if idx < len(row) else None for idx, field in mapping.items()}
+                payload = _normalize_payload(entity_type, raw_payload)
+                if _is_empty_payload(entity_type, payload):
+                    consecutive_empty += 1
+                    if consecutive_empty >= 100:
+                        break
+                    continue
+                consecutive_empty = 0
+                summary.rows_read += 1
+                payload["source_file"] = path.name
+                payload["source_sheet"] = sheet_name
+                payload["source_row"] = row_no
+                payload["imported_at"] = now
+                payload["raw_json"] = json.dumps({str(k): strip_text(v) for k, v in raw_payload.items()}, ensure_ascii=False)
+                payload["row_hash"] = _row_hash(entity_type, payload)
+                table = "cases" if entity_type == "case" else "outbreaks"
+                cols = list(payload)
+                placeholders = ",".join("?" for _ in cols)
+                try:
+                    cur = conn.execute(
+                        f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders})",
+                        [payload[c] for c in cols],
+                    )
+                    entity_id = cur.lastrowid
+                    summary.inserted += 1
+                except sqlite3.IntegrityError as exc:
+                    if "row_hash" in str(exc).lower() or "unique" in str(exc).lower():
+                        summary.duplicates += 1
+                        continue
+                    summary.skipped += 1
+                    continue
+                for severity, issue_type, description in _quality_checks(entity_type, payload):
+                    conn.execute(
+                        """INSERT INTO data_quality_issues
+                           (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (entity_type, entity_id, path.name, row_no, severity, issue_type, description, now),
+                    )
+                    summary.issues += 1
+            conn.execute(
+                """INSERT INTO import_batches
+                   (file_name, file_path, entity_type, sheet_name, rows_read, inserted, duplicates, skipped, issue_count, imported_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    path.name,
+                    str(path),
+                    entity_type,
+                    sheet_name,
+                    summary.rows_read,
+                    summary.inserted,
+                    summary.duplicates,
+                    summary.skipped,
+                    summary.issues,
+                    now,
+                ),
+            )
+    finally:
+        wb.close()
+    return summary
+
+
+def dashboard_stats(db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        cases = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+        outbreaks = conn.execute("SELECT COUNT(*) FROM outbreaks").fetchone()[0]
+        active = conn.execute("SELECT COUNT(*) FROM outbreaks WHERE status LIKE '%Đang hoạt động%'").fetchone()[0]
+        total_cases = conn.execute("SELECT COALESCE(SUM(case_count),0) FROM outbreaks").fetchone()[0]
+        deaths = conn.execute("SELECT COALESCE(SUM(death_count),0) FROM outbreaks").fetchone()[0]
+        issues = conn.execute("SELECT COUNT(*) FROM data_quality_issues WHERE severity IN ('error','warning')").fetchone()[0]
+        return {
+            "case_records": cases,
+            "outbreak_records": outbreaks,
+            "active_outbreaks": active,
+            "reported_cases": total_cases,
+            "deaths": deaths,
+            "quality_issues": issues,
+        }
+
+
+def disease_summary(db_path: Path | str = DB_PATH, limit: int = 15) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT disease, COUNT(*) AS outbreak_count,
+                      COALESCE(SUM(case_count),0) AS case_count,
+                      COALESCE(SUM(death_count),0) AS death_count,
+                      SUM(CASE WHEN status LIKE '%Đang hoạt động%' THEN 1 ELSE 0 END) AS active_count
+               FROM outbreaks
+               GROUP BY disease
+               ORDER BY outbreak_count DESC, disease
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def monthly_outbreak_summary(db_path: Path | str = DB_PATH, limit: int = 18) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT substr(first_onset_date,1,7) AS month,
+                      COUNT(*) AS outbreak_count,
+                      COALESCE(SUM(case_count),0) AS case_count
+               FROM outbreaks
+               WHERE first_onset_date <> ''
+               GROUP BY substr(first_onset_date,1,7)
+               ORDER BY month DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
+
+def recent_active_outbreaks(db_path: Path | str = DB_PATH, limit: int = 20) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, disease, location, first_onset_date, case_count, status, reporting_unit
+               FROM outbreaks WHERE status LIKE '%Đang hoạt động%'
+               ORDER BY first_onset_date DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+CASE_TABLE_COLUMNS = [
+    "id", "case_code", "full_name", "birth_date_raw", "gender", "province", "commune",
+    "main_diagnosis", "onset_date", "current_status", "report_datetime", "reporting_unit",
+]
+OUTBREAK_TABLE_COLUMNS = [
+    "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date", "end_date",
+    "status", "case_count", "death_count", "sample_count", "positive_count", "report_datetime", "reporting_unit",
+]
+
+
+def _safe_table(entity_type: str) -> tuple[str, list[str]]:
+    if entity_type == "case":
+        return "cases", CASE_TABLE_COLUMNS
+    if entity_type == "outbreak":
+        return "outbreaks", OUTBREAK_TABLE_COLUMNS
+    raise ValueError("entity_type không hợp lệ")
+
+
+def list_filter_values(entity_type: str, field: str, db_path: Path | str = DB_PATH) -> list[str]:
+    table, columns = _safe_table(entity_type)
+    allowed = set(columns) | {"record_status", "current_status", "main_diagnosis", "disease", "status", "admin_area", "reporting_unit"}
+    if field not in allowed:
+        raise ValueError("Trường lọc không hợp lệ")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT DISTINCT {field} FROM {table} WHERE COALESCE({field},'') <> '' ORDER BY {field}"
+        ).fetchall()
+        return [str(r[0]) for r in rows]
+
+
+def query_records(
+    entity_type: str,
+    *,
+    search: str = "",
+    disease: str = "",
+    status: str = "",
+    admin_area: str = "",
+    page: int = 1,
+    page_size: int = 200,
+    db_path: Path | str = DB_PATH,
+) -> tuple[list[dict[str, Any]], int]:
+    table, columns = _safe_table(entity_type)
+    where: list[str] = []
+    params: list[Any] = []
+    if search:
+        like = f"%{search}%"
+        if entity_type == "case":
+            where.append("(full_name LIKE ? OR case_code LIKE ? OR national_id LIKE ? OR current_address LIKE ? OR commune LIKE ?)")
+            params.extend([like] * 5)
+        else:
+            where.append("(disease LIKE ? OR location LIKE ? OR reporting_unit LIKE ? OR admin_area LIKE ?)")
+            params.extend([like] * 4)
+    if disease:
+        field = "main_diagnosis" if entity_type == "case" else "disease"
+        where.append(f"{field} = ?")
+        params.append(disease)
+    if status:
+        if entity_type == "case":
+            where.append("(record_status = ? OR current_status = ?)")
+            params.extend([status, status])
+        else:
+            where.append("status = ?")
+            params.append(status)
+    if admin_area:
+        field = "commune" if entity_type == "case" else "admin_area"
+        where.append(f"{field} = ?")
+        params.append(admin_area)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    order = "onset_date DESC, id DESC" if entity_type == "case" else "first_onset_date DESC, id DESC"
+    page = max(1, page)
+    page_size = max(10, min(2000, page_size))
+    with _connect(db_path) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT {','.join(columns)} FROM {table}{where_sql} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+
+def get_record(entity_type: str, record_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    table, _ = _safe_table(entity_type)
+    with _connect(db_path) as conn:
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def save_outbreak(data: dict[str, Any], record_id: int | None = None, db_path: Path | str = DB_PATH) -> int:
+    init_db(db_path)
+    allowed = {db for _, db in OUTBREAK_FIELDS}
+    payload = _normalize_payload("outbreak", {k: v for k, v in data.items() if k in allowed})
+    payload["source_file"] = data.get("source_file") or "Nhập trực tiếp"
+    payload["source_sheet"] = data.get("source_sheet") or "Ứng dụng"
+    payload["source_row"] = data.get("source_row") or 0
+    payload["imported_at"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+    payload["raw_json"] = json.dumps(data, ensure_ascii=False, default=str)
+    payload["row_hash"] = _row_hash("outbreak", payload)
+    with _connect(db_path) as conn:
+        if record_id:
+            cols = [c for c in payload if c not in {"row_hash", "imported_at"}]
+            conn.execute(
+                f"UPDATE outbreaks SET {','.join(f'{c}=?' for c in cols)} WHERE id=?",
+                [payload[c] for c in cols] + [record_id],
+            )
+            conn.execute("DELETE FROM data_quality_issues WHERE entity_type='outbreak' AND entity_id=?", (record_id,))
+            entity_id = record_id
+        else:
+            cols = list(payload)
+            cur = conn.execute(
+                f"INSERT INTO outbreaks ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",
+                [payload[c] for c in cols],
+            )
+            entity_id = int(cur.lastrowid)
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        for severity, issue_type, description in _quality_checks("outbreak", payload):
+            conn.execute(
+                """INSERT INTO data_quality_issues
+                   (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                   VALUES ('outbreak', ?, ?, ?, ?, ?, ?, ?)""",
+                (entity_id, payload["source_file"], payload["source_row"], severity, issue_type, description, now),
+            )
+        return entity_id
+
+
+def delete_record(entity_type: str, record_id: int, db_path: Path | str = DB_PATH) -> None:
+    table, _ = _safe_table(entity_type)
+    create_backup(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+        conn.execute("DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, record_id))
+
+
+def list_quality_issues(
+    *, severity: str = "", entity_type: str = "", limit: int = 2000, db_path: Path | str = DB_PATH
+) -> list[dict[str, Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    if severity:
+        where.append("severity=?")
+        params.append(severity)
+    if entity_type:
+        where.append("entity_type=?")
+        params.append(entity_type)
+    sql_where = " WHERE " + " AND ".join(where) if where else ""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""SELECT id, entity_type, entity_id, severity, issue_type, description, source_file, source_row, created_at
+                FROM data_quality_issues{sql_where}
+                ORDER BY CASE severity WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, id DESC LIMIT ?""",
+            [*params, limit],
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_import_batches(db_path: Path | str = DB_PATH, limit: int = 50) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute("SELECT * FROM import_batches ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def execute_select(sql: str, db_path: Path | str = DB_PATH, max_rows: int = 5000) -> tuple[list[str], list[list[Any]]]:
+    cleaned = sql.strip().rstrip(";")
+    if not re.match(r"^(SELECT|WITH)\b", cleaned, flags=re.I):
+        raise ValueError("Chỉ cho phép câu lệnh SELECT hoặc WITH ... SELECT.")
+    forbidden = re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|ATTACH|DETACH|PRAGMA|REPLACE|VACUUM|CREATE)\b", cleaned, flags=re.I)
+    if forbidden:
+        raise ValueError(f"Không cho phép từ khóa {forbidden.group(1).upper()} trong truy vấn.")
+    with _connect(db_path) as conn:
+        cur = conn.execute(cleaned)
+        columns = [d[0] for d in cur.description or []]
+        rows = [list(r) for r in cur.fetchmany(max_rows)]
+        return columns, rows
+
+
+def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
+    path = Path(path)
+    rows = list(rows)
+    if path.suffix.lower() == ".csv":
+        with path.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+            writer.writerows(rows)
+        return
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dữ liệu"
+    ws.append(list(columns))
+    for row in rows:
+        ws.append(list(row))
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for cell in ws[1]:
+        cell.font = cell.font.copy(bold=True)
+    for col in ws.columns:
+        values = [str(c.value or "") for c in col[:200]]
+        width = min(max(max((len(v) for v in values), default=8) + 2, 10), 45)
+        ws.column_dimensions[col[0].column_letter].width = width
+    wb.save(path)
+
+
+def export_filtered_records(
+    path: Path | str,
+    entity_type: str,
+    *,
+    search: str = "",
+    disease: str = "",
+    status: str = "",
+    admin_area: str = "",
+    db_path: Path | str = DB_PATH,
+) -> int:
+    table, _ = _safe_table(entity_type)
+    where: list[str] = []
+    params: list[Any] = []
+    if search:
+        like = f"%{search}%"
+        if entity_type == "case":
+            where.append("(full_name LIKE ? OR case_code LIKE ? OR national_id LIKE ? OR current_address LIKE ? OR commune LIKE ?)")
+            params.extend([like] * 5)
+        else:
+            where.append("(disease LIKE ? OR location LIKE ? OR reporting_unit LIKE ? OR admin_area LIKE ?)")
+            params.extend([like] * 4)
+    if disease:
+        field = "main_diagnosis" if entity_type == "case" else "disease"
+        where.append(f"{field} = ?")
+        params.append(disease)
+    if status:
+        if entity_type == "case":
+            where.append("(record_status = ? OR current_status = ?)")
+            params.extend([status, status])
+        else:
+            where.append("status = ?")
+            params.append(status)
+    if admin_area:
+        field = "commune" if entity_type == "case" else "admin_area"
+        where.append(f"{field} = ?")
+        params.append(admin_area)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    order = "onset_date DESC, id DESC" if entity_type == "case" else "first_onset_date DESC, id DESC"
+    hidden = {"row_hash", "raw_json"}
+    with _connect(db_path) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()[0]
+        if total == 0:
+            raise ValueError("Không có dữ liệu phù hợp để xuất.")
+        if total > 50_000:
+            raise ValueError("Bộ lọc có trên 50.000 dòng. Hãy thu hẹp bộ lọc trước khi xuất.")
+        db_columns = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall() if r[1] not in hidden]
+        values = conn.execute(
+            f"SELECT {','.join(db_columns)} FROM {table}{where_sql} ORDER BY {order}", params
+        ).fetchall()
+    labels = CASE_LABELS if entity_type == "case" else OUTBREAK_LABELS
+    extra_labels = {
+        "id": "ID",
+        "birth_year": "Năm sinh",
+        "admin_area": "Địa bàn chuẩn hóa",
+        "source_file": "File nguồn",
+        "source_sheet": "Sheet nguồn",
+        "source_row": "Dòng nguồn",
+        "imported_at": "Thời điểm nhập",
+    }
+    out_headers = [labels.get(c, extra_labels.get(c, c)) for c in db_columns]
+    export_rows(path, out_headers, [[row[c] for c in db_columns] for row in values])
+    return total
+
+
+def create_backup(db_path: Path | str = DB_PATH) -> Path:
+    db_path = Path(db_path)
+    init_db(db_path)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target = BACKUP_DIR / f"giam_sat_dich_benh_{stamp}.db"
+    shutil.copy2(db_path, target)
+    backups = sorted(BACKUP_DIR.glob("giam_sat_dich_benh_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[10:]:
+        old.unlink(missing_ok=True)
+    return target
+
+
+def open_folder(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        os.system(f'open "{path}"')
+    else:
+        os.system(f'xdg-open "{path}" >/dev/null 2>&1 &')
+
+
+init_db()

