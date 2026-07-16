@@ -3,3 +3,4 @@ Retry after fixing PowerShell tag detection.
 Run Windows pytest diagnostic.
 Retry after closing SQLite connections on Windows.
 Retry after enforcing Setup.exe creation.
+Run full Windows build diagnostic.
