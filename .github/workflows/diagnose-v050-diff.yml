@@ -38,14 +38,14 @@ jobs:
               if not lines:
                   continue
               marker, content = lines[0].strip(), ''.join(lines[1:])
-              m = re.fullmatch(r'GSBTN_V050_DIFF (\d+)/9', marker)
+              m = re.fullmatch(r'GSBTN_V050_DIFF (\d+)/0?9', marker)
               if m and int(m.group(1)) not in parts:
                   parts[int(m.group(1))] = content
                   continue
-              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT (\d+)/9', marker)
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT (\d+)/0?9', marker)
               if m:
                   append(int(m.group(1)), content); continue
-              m = re.fullmatch(r'GSBTN_V050_DIFF_REPLACE (\d+)/9', marker)
+              m = re.fullmatch(r'GSBTN_V050_DIFF_REPLACE (\d+)/0?9', marker)
               if m:
                   n = int(m.group(1))
                   if n == 9:
@@ -59,7 +59,7 @@ jobs:
                       content = ''.join(fixed)
                   parts[n] = content
                   continue
-              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT_PLUS1 (\d+)/9', marker)
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT_PLUS1 (\d+)/0?9', marker)
               if m:
                   fixed = ''.join(line[1:] if line.startswith('+') else line for line in content.splitlines(keepends=True))
                   append(int(m.group(1)), fixed)
