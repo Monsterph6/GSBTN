@@ -1,0 +1,22 @@
+name: Dispatch GSBTN v0.5.0 release
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  issues: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[DISPATCH RELEASE V050]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch main release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main
+          gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body "[V050 RELEASE DISPATCHED] Đã kích hoạt workflow Release chính trên nhánh main."
