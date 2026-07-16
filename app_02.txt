@@ -1,0 +1,261 @@
+                disease=self.disease.currentData() or "",
+                status=self.status.currentData() or "",
+                admin_area=self.area.currentData() or "",
+            )
+            QMessageBox.information(self, "Đã xuất", f"Đã xuất {count:,} bản ghi:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể xuất", str(exc))
+
+    def add_outbreak(self):
+        dialog = OutbreakDialog(parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                core.save_outbreak(dialog.values())
+                self.refresh_filters()
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể lưu", str(exc))
+
+    def edit_selected(self):
+        record = self.selected_record()
+        if not record:
+            return
+        full = core.get_record("outbreak", int(record["id"]))
+        dialog = OutbreakDialog(full, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                core.save_outbreak(dialog.values(), int(record["id"]))
+                self.refresh_filters()
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể lưu", str(exc))
+
+    def delete_selected(self):
+        record = self.selected_record()
+        if not record:
+            return
+        answer = QMessageBox.question(self, "Xác nhận xóa", "Xóa ổ dịch đã chọn? CSDL sẽ được sao lưu trước khi xóa.")
+        if answer == QMessageBox.StandardButton.Yes:
+            try:
+                core.delete_record("outbreak", int(record["id"]))
+                self.refresh()
+            except Exception as exc:
+                QMessageBox.critical(self, "Không thể xóa", str(exc))
+
+
+class ImportTab(QWidget):
+    def __init__(self, after_import=None):
+        super().__init__()
+        self.after_import = after_import
+        root = QVBoxLayout(self)
+        title = QLabel("Nhập dữ liệu từ Excel")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        note = QLabel(
+            "Ứng dụng tự nhận diện file ca bệnh hoặc ổ dịch qua tiêu đề cột. "
+            "Dòng giống hệt đã nhập trước đó sẽ được bỏ qua bằng mã băm."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
+        row = QHBoxLayout()
+        self.path = QLineEdit()
+        self.path.setReadOnly(True)
+        browse = QPushButton("Chọn file...")
+        browse.clicked.connect(self.browse)
+        self.import_btn = QPushButton("Nhập vào CSDL")
+        self.import_btn.clicked.connect(self.do_import)
+        row.addWidget(self.path, 1)
+        row.addWidget(browse)
+        row.addWidget(self.import_btn)
+        root.addLayout(row)
+        self.files: list[str] = []
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        root.addWidget(self.log, 1)
+        history_box = QGroupBox("Lịch sử nhập gần đây")
+        history_layout = QVBoxLayout(history_box)
+        self.history = QTableView()
+        self.history_model = DictTableModel(columns=[
+            ("imported_at", "Thời điểm"), ("file_name", "File"), ("entity_type", "Loại"),
+            ("rows_read", "Đã đọc"), ("inserted", "Đã thêm"), ("duplicates", "Trùng"),
+            ("issue_count", "Cảnh báo"),
+        ])
+        self.history.setModel(self.history_model)
+        self.history.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        history_layout.addWidget(self.history)
+        root.addWidget(history_box, 1)
+        self.refresh_history()
+
+    def browse(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Chọn file Excel", "", "Excel (*.xlsx *.xlsm)")
+        if files:
+            self.files = files
+            self.path.setText("; ".join(files))
+
+    def do_import(self):
+        if not self.files:
+            QMessageBox.information(self, "Chưa chọn file", "Hãy chọn ít nhất một file Excel.")
+            return
+        self.import_btn.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for file in self.files:
+                try:
+                    summary = core.import_excel(file)
+                    self.log.appendPlainText("✓ " + summary.as_text())
+                except Exception as exc:
+                    self.log.appendPlainText(f"✗ {Path(file).name}: {exc}")
+            self.refresh_history()
+            if self.after_import:
+                self.after_import()
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.import_btn.setEnabled(True)
+
+    def refresh_history(self):
+        rows = core.list_import_batches()
+        for row in rows:
+            row["entity_type"] = "Ca bệnh" if row["entity_type"] == "case" else "Ổ dịch"
+        self.history_model.set_data(rows)
+
+
+
+class DuplicateReviewDialog(QDialog):
+    def __init__(self, group: dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.group = group
+        self.setWindowTitle(f"Duyệt nhóm trùng #{group['group_id']}")
+        self.resize(1050, 600)
+        root = QVBoxLayout(self)
+        note = QLabel(
+            f"<b>{group['confidence']} — điểm {group['score']}/100</b><br>"
+            f"Lý do: {group['reasons']}<br><br>"
+            "Chọn một bản ghi để giữ. Các bản ghi còn lại chỉ bị xóa sau khi xác nhận; "
+            "CSDL được sao lưu trước thao tác."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
+        self.keep_combo = QComboBox()
+        for record in group["records"]:
+            if group["entity_type"] == "case":
+                caption = f"ID {record['id']} — {record.get('full_name') or ''} — {record.get('case_code') or 'không mã'}"
+            else:
+                caption = f"ID {record['id']} — {record.get('disease') or ''} — {record.get('location') or ''}"
+            source = f"{record.get('source_file') or ''}:{record.get('source_row') or ''}"
+            self.keep_combo.addItem(f"{caption} — nguồn {source}", int(record["id"]))
+        form = QFormLayout()
+        form.addRow("Bản ghi giữ lại:", self.keep_combo)
+        root.addLayout(form)
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        if group["entity_type"] == "case":
+            columns = [
+                ("id", "ID"), ("case_code", "Mã ca"), ("full_name", "Họ tên"),
+                ("birth_date_raw", "Ngày sinh"), ("gender", "Giới"), ("phone", "Điện thoại"),
+                ("commune", "Xã/phường"), ("main_diagnosis", "Chẩn đoán"),
+                ("onset_date", "Khởi phát"), ("source_file", "File nguồn"), ("source_row", "Dòng"),
+            ]
+        else:
+            columns = [
+                ("id", "ID"), ("disease", "Bệnh"), ("location", "Địa điểm"),
+                ("admin_area", "Địa bàn"), ("first_onset_date", "Khởi phát đầu"),
+                ("status", "Trạng thái"), ("case_count", "Ca mắc"),
+                ("reporting_unit", "Đơn vị báo cáo"), ("source_file", "File nguồn"), ("source_row", "Dòng"),
+            ]
+        self.table.setModel(DictTableModel(group["records"], columns))
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        root.addWidget(self.table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Giữ bản đã chọn và xóa bản còn lại")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    @property
+    def keep_id(self) -> int:
+        return int(self.keep_combo.currentData())
+
+
+class DuplicateTab(QWidget):
+    def __init__(self, after_change=None):
+        super().__init__()
+        self.after_change = after_change
+        self.groups: list[dict[str, Any]] = []
+        root = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title = QLabel("Lọc trùng dữ liệu")
+        title.setObjectName("sectionTitle")
+        self.entity = QComboBox()
+        self.entity.addItem("Ca bệnh", "case")
+        self.entity.addItem("Ổ dịch", "outbreak")
+        self.min_score = QSpinBox()
+        self.min_score.setRange(50, 100)
+        self.min_score.setValue(65)
+        self.min_score.setSuffix(" điểm")
+        scan = QPushButton("Quét dữ liệu")
+        scan.clicked.connect(self.refresh)
+        review = QPushButton("Duyệt nhóm đã chọn")
+        review.clicked.connect(self.review_selected)
+        export = QPushButton("Xuất kết quả")
+        export.setObjectName("secondary")
+        export.clicked.connect(self.export)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(QLabel("Đối tượng:"))
+        title_row.addWidget(self.entity)
+        title_row.addWidget(QLabel("Ngưỡng:"))
+        title_row.addWidget(self.min_score)
+        title_row.addWidget(scan)
+        title_row.addWidget(review)
+        title_row.addWidget(export)
+        root.addLayout(title_row)
+        info = QLabel(
+            "Trùng tuyệt đối khi khớp mã ca hoặc CCCD/CMND. Các trường hợp còn lại được chấm điểm "
+            "theo họ tên, năm sinh, điện thoại, địa bàn, chẩn đoán và ngày khởi phát. "
+            "Ứng dụng không tự động xóa hay gộp."
+        )
+        info.setWordWrap(True)
+        root.addWidget(info)
+        self.summary = QLabel("Chưa quét dữ liệu.")
+        root.addWidget(self.summary)
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(self.review_selected)
+        self.model = DictTableModel(columns=[
+            ("group_id", "Nhóm"), ("confidence", "Mức"), ("score", "Điểm"),
+            ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Lý do"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table, 1)
+
+    def clear_results(self):
+        self.groups = []
+        self.model.set_data([])
+        self.summary.setText("Dữ liệu đã thay đổi. Bấm Quét dữ liệu để cập nhật kết quả lọc trùng.")
+
+    def refresh(self):
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.groups = core.find_duplicate_groups(
+                self.entity.currentData(), min_score=self.min_score.value()
+            )
+            rows = []
+            for group in self.groups:
+                row = {k: v for k, v in group.items() if k != "records"}
+                row["severity"] = "error" if group["score"] >= 85 else "warning"
+                rows.append(row)
+            self.model.set_data(rows)
+            total_records = sum(int(group["record_count"]) for group in self.groups)
+            self.summary.setText(
+                f"Phát hiện {len(self.groups):,} nhóm với {total_records:,} bản ghi cần duyệt."
+                if self.groups else "Không phát hiện bản ghi trùng theo ngưỡng hiện tại."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể lọc trùng", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+

@@ -1,0 +1,225 @@
+        best_score = max(edge[2] for edge in group_edges)
+        all_reasons: list[str] = []
+        for _, _, _, edge_reasons in sorted(group_edges, key=lambda e: e[2], reverse=True):
+            for reason in edge_reasons:
+                if reason not in all_reasons:
+                    all_reasons.append(reason)
+        records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
+        if entity_type == "case":
+            summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
+        else:
+            summary = " / ".join(str(r.get("location") or r["id"]) for r in records[:3])
+        result.append({
+            "group_id": group_no,
+            "entity_type": entity_type,
+            "confidence": "Trùng chắc chắn" if best_score >= 85 else "Nghi trùng",
+            "score": best_score,
+            "record_count": len(records),
+            "record_ids": [int(r["id"]) for r in records],
+            "summary": summary,
+            "reasons": "; ".join(all_reasons[:8]),
+            "records": records,
+        })
+    return sorted(result, key=lambda g: (-int(g["score"]), int(g["group_id"])))
+
+
+def remove_duplicate_records(
+    entity_type: str,
+    keep_id: int,
+    remove_ids: Sequence[int],
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    table, _ = _safe_table(entity_type)
+    keep_id = int(keep_id)
+    ids = sorted({int(v) for v in remove_ids if int(v) != keep_id})
+    if not ids:
+        raise ValueError("Chưa chọn bản ghi trùng để xóa.")
+    with _connect(db_path) as conn:
+        existing = {int(r[0]) for r in conn.execute(
+            f"SELECT id FROM {table} WHERE id IN ({','.join('?' for _ in [keep_id, *ids])})",
+            [keep_id, *ids],
+        ).fetchall()}
+    if keep_id not in existing:
+        raise ValueError("Bản ghi cần giữ không tồn tại.")
+    missing = [record_id for record_id in ids if record_id not in existing]
+    if missing:
+        raise ValueError(f"Bản ghi cần xóa không tồn tại: {missing}")
+    backup = create_backup(db_path)
+    with _connect(db_path) as conn:
+        placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
+        conn.execute(
+            f"DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id IN ({placeholders})",
+            [entity_type, *ids],
+        )
+        conn.execute(
+            """INSERT INTO duplicate_actions
+               (entity_type, keep_id, removed_ids_json, backup_file, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (entity_type, keep_id, json.dumps(ids), str(backup), datetime.now().isoformat(sep=" ", timespec="seconds")),
+        )
+    return {"kept_id": keep_id, "removed_ids": ids, "removed_count": len(ids), "backup_file": str(backup)}
+
+
+def list_quality_issues(
+    *, severity: str = "", entity_type: str = "", limit: int = 2000, db_path: Path | str = DB_PATH
+) -> list[dict[str, Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    if severity:
+        where.append("severity=?")
+        params.append(severity)
+    if entity_type:
+        where.append("entity_type=?")
+        params.append(entity_type)
+    sql_where = " WHERE " + " AND ".join(where) if where else ""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""SELECT id, entity_type, entity_id, severity, issue_type, description, source_file, source_row, created_at
+                FROM data_quality_issues{sql_where}
+                ORDER BY CASE severity WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, id DESC LIMIT ?""",
+            [*params, limit],
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_import_batches(db_path: Path | str = DB_PATH, limit: int = 50) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute("SELECT * FROM import_batches ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def execute_select(sql: str, db_path: Path | str = DB_PATH, max_rows: int = 5000) -> tuple[list[str], list[list[Any]]]:
+    cleaned = sql.strip().rstrip(";")
+    if not re.match(r"^(SELECT|WITH)\b", cleaned, flags=re.I):
+        raise ValueError("Chỉ cho phép câu lệnh SELECT hoặc WITH ... SELECT.")
+    forbidden = re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|ATTACH|DETACH|PRAGMA|REPLACE|VACUUM|CREATE)\b", cleaned, flags=re.I)
+    if forbidden:
+        raise ValueError(f"Không cho phép từ khóa {forbidden.group(1).upper()} trong truy vấn.")
+    with _connect(db_path) as conn:
+        cur = conn.execute(cleaned)
+        columns = [d[0] for d in cur.description or []]
+        rows = [list(r) for r in cur.fetchmany(max_rows)]
+        return columns, rows
+
+
+def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
+    path = Path(path)
+    rows = list(rows)
+    if path.suffix.lower() == ".csv":
+        with path.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            writer.writerow(columns)
+            writer.writerows(rows)
+        return
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dữ liệu"
+    ws.append(list(columns))
+    for row in rows:
+        ws.append(list(row))
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for cell in ws[1]:
+        cell.font = cell.font.copy(bold=True)
+    for col in ws.columns:
+        values = [str(c.value or "") for c in col[:200]]
+        width = min(max(max((len(v) for v in values), default=8) + 2, 10), 45)
+        ws.column_dimensions[col[0].column_letter].width = width
+    wb.save(path)
+
+
+def export_filtered_records(
+    path: Path | str,
+    entity_type: str,
+    *,
+    search: str = "",
+    disease: str = "",
+    status: str = "",
+    admin_area: str = "",
+    db_path: Path | str = DB_PATH,
+) -> int:
+    table, _ = _safe_table(entity_type)
+    where: list[str] = []
+    params: list[Any] = []
+    if search:
+        like = f"%{search}%"
+        if entity_type == "case":
+            where.append("(full_name LIKE ? OR case_code LIKE ? OR national_id LIKE ? OR current_address LIKE ? OR commune LIKE ?)")
+            params.extend([like] * 5)
+        else:
+            where.append("(disease LIKE ? OR location LIKE ? OR reporting_unit LIKE ? OR admin_area LIKE ?)")
+            params.extend([like] * 4)
+    if disease:
+        field = "main_diagnosis" if entity_type == "case" else "disease"
+        where.append(f"{field} = ?")
+        params.append(disease)
+    if status:
+        if entity_type == "case":
+            where.append("(record_status = ? OR current_status = ?)")
+            params.extend([status, status])
+        else:
+            where.append("status = ?")
+            params.append(status)
+    if admin_area:
+        field = "commune" if entity_type == "case" else "admin_area"
+        where.append(f"{field} = ?")
+        params.append(admin_area)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    order = "onset_date DESC, id DESC" if entity_type == "case" else "first_onset_date DESC, id DESC"
+    hidden = {"row_hash", "raw_json"}
+    with _connect(db_path) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()[0]
+        if total == 0:
+            raise ValueError("Không có dữ liệu phù hợp để xuất.")
+        if total > 50_000:
+            raise ValueError("Bộ lọc có trên 50.000 dòng. Hãy thu hẹp bộ lọc trước khi xuất.")
+        db_columns = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall() if r[1] not in hidden]
+        values = conn.execute(
+            f"SELECT {','.join(db_columns)} FROM {table}{where_sql} ORDER BY {order}", params
+        ).fetchall()
+    labels = CASE_LABELS if entity_type == "case" else OUTBREAK_LABELS
+    extra_labels = {
+        "id": "ID",
+        "birth_year": "Năm sinh",
+        "admin_area": "Địa bàn chuẩn hóa",
+        "source_file": "File nguồn",
+        "source_sheet": "Sheet nguồn",
+        "source_row": "Dòng nguồn",
+        "imported_at": "Thời điểm nhập",
+    }
+    out_headers = [labels.get(c, extra_labels.get(c, c)) for c in db_columns]
+    export_rows(path, out_headers, [[row[c] for c in db_columns] for row in values])
+    return total
+
+
+def create_backup(db_path: Path | str = DB_PATH) -> Path:
+    db_path = Path(db_path)
+    init_db(db_path)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    target = BACKUP_DIR / f"giam_sat_dich_benh_{stamp}.db"
+    source = sqlite3.connect(db_path)
+    destination = sqlite3.connect(target)
+    try:
+        source.backup(destination)
+    finally:
+        destination.close()
+        source.close()
+    backups = sorted(BACKUP_DIR.glob("giam_sat_dich_benh_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in backups[10:]:
+        old.unlink(missing_ok=True)
+    return target
+
+
+def open_folder(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        os.system(f'open "{path}"')
+    else:
+        os.system(f'xdg-open "{path}" >/dev/null 2>&1 &')
+
+
+init_db()

@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import csv
+from contextlib import contextmanager
+from difflib import SequenceMatcher
+import hashlib
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import unicodedata
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+from openpyxl import Workbook, load_workbook
+
+APP_NAME = "Giám sát dịch bệnh"
+VERSION = "0.4.0"
+
+
+def _base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+BASE_DIR = _base_dir()
+
+
+def _user_data_root() -> Path:
+    """Thư mục dữ liệu tách khỏi bộ cài để cài mới/cập nhật không đụng CSDL."""
+    override = os.environ.get("GIAM_SAT_DICH_BENH_DATA_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "CDC_HaiPhong" / "GiamSatDichBenh"
+    return Path.home() / ".giam_sat_dich_benh"
+
+
+USER_DATA_DIR = _user_data_root()
+DATA_DIR = USER_DATA_DIR / "data"
+BACKUP_DIR = USER_DATA_DIR / "backups"
+UPDATE_CACHE_DIR = USER_DATA_DIR / "update_cache"
+DB_PATH = DATA_DIR / "giam_sat_dich_benh.db"
+
+for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
+
+CASE_FIELDS: list[tuple[str, str]] = [
+    ("STT", "source_stt"),
+    ("Mã số", "case_code"),
+    ("Họ tên", "full_name"),
+    ("Ngày sinh", "birth_date_raw"),
+    ("Nghề nghiệp", "occupation"),
+    ("Nơi làm việc/ Học tập", "workplace"),
+    ("Tỉnh (Nơi làm việc)", "workplace_province"),
+    ("Xã (Nơi làm việc)", "workplace_commune"),
+    ("Thôn (Nơi làm việc)", "workplace_village"),
+    ("Dân tộc", "ethnicity"),
+    ("Giới tính", "gender"),
+    ("CMND", "national_id"),
+    ("Điện thoại", "phone"),
+    ("Nơi ở hiện nay", "current_address"),
+    ("Tỉnh", "province"),
+    ("Xã", "commune"),
+    ("Thôn", "village"),
+    ("Kinh độ", "longitude"),
+    ("Vĩ độ", "latitude"),
+    ("Chẩn đoán chính", "main_diagnosis"),
+    ("Phân độ bệnh", "severity"),
+    ("Chẩn đoán bệnh kèm theo", "comorbidity_diagnosis"),
+    ("Tình trạng tiêm chủng", "vaccination_status"),
+    ("Số lần tiêm, uống", "vaccination_doses"),
+    ("Phân loại chẩn đoán", "diagnosis_classification"),
+    ("Lấy mẫu xét nghiệm", "sample_collected"),
+    ("Ngày lấy mẫu", "sample_date"),
+    ("Đơn vị xét nghiệm", "lab_unit"),
+    ("Loại xét nghiệm", "test_type"),
+    ("Kết quả", "test_result"),
+    ("Ghi chú", "notes"),
+    ("Tình trạng hiện nay", "current_status"),
+    ("Tiền sử dịch tễ", "epidemiological_history"),
+    ("Ngày khởi phát", "onset_date"),
+    ("Ngày nhập viện", "admission_date"),
+    ("Ngày ra viện/tử vong", "discharge_or_death_date"),
+    ("Biến chứng", "complications"),
+    ("Tên người báo cáo", "reporter_name"),
+    ("SĐT người báo cáo", "reporter_phone"),
+    ("Email người báo cáo", "reporter_email"),
+    ("Đơn vị báo cáo", "reporting_unit"),
+    ("Tỉnh đơn vị báo cáo", "reporting_province"),
+    ("Cơ sở điều trị", "treatment_facility"),
+    ("Trạng thái", "record_status"),
+    ("Thời gian báo cáo", "report_datetime"),
+    ("Chẩn đoán thay đổi gần nhất", "latest_diagnosis_change"),
+    ("Tình trạng thay đổi gần nhất", "latest_status_change"),
+    ("Thời gian sửa", "modified_datetime"),
+]
+
+OUTBREAK_FIELDS: list[tuple[str, str]] = [
+    ("STT", "source_stt"),
+    ("Tên bệnh", "disease"),
+    ("Địa điểm xảy ra ổ dịch", "location"),
+    ("Ngày khởi phát trường hợp bệnh đầu tiên", "first_onset_date"),
+    ("Ngày ổ dịch kết thúc hoạt động", "end_date"),
+    ("Trạng thái", "status"),
+    ("Số ca mắc", "case_count"),
+    ("Số ca tử vong", "death_count"),
+    ("Số mẫu XN", "sample_count"),
+    ("Số mẫu (+)", "positive_count"),
+    ("Ngày báo cáo", "report_datetime"),
+    ("Đơn vị báo cáo", "reporting_unit"),
+    ("Tỉnh báo cáo", "reporting_province"),
+    ("Ngày nhận báo cáo ổ dịch bệnh đầu tiên", "first_report_received_date"),
+    ("Ngày khởi phát trường hợp bệnh cuối cùng", "last_onset_date"),
+]
+
+CASE_LABELS = {db: label for label, db in CASE_FIELDS}
+OUTBREAK_LABELS = {db: label for label, db in OUTBREAK_FIELDS}
+
+DATE_FIELDS = {
+    "sample_date",
+    "onset_date",
+    "admission_date",
+    "discharge_or_death_date",
+    "first_onset_date",
+    "end_date",
+    "first_report_received_date",
+    "last_onset_date",
+}
+DATETIME_FIELDS = {"report_datetime", "modified_datetime"}
+INTEGER_FIELDS = {"source_stt", "case_count", "death_count", "sample_count", "positive_count"}
+FLOAT_FIELDS = {"longitude", "latitude"}
+
+
+@dataclass
+class ImportSummary:
+    file_name: str
+    entity_type: str
+    detected_sheet: str
+    rows_read: int = 0
+    inserted: int = 0
+    duplicates: int = 0
+    skipped: int = 0
+    issues: int = 0
+
+    def as_text(self) -> str:
+        kind = "ca bệnh" if self.entity_type == "case" else "ổ dịch"
+        return (
+            f"{self.file_name} — {kind}: đọc {self.rows_read}, thêm {self.inserted}, "
+            f"trùng {self.duplicates}, bỏ qua {self.skipped}, cảnh báo {self.issues}."
+        )
+
+
+@contextmanager
+def _connect(db_path: Path | str = DB_PATH):
+    """Mở kết nối SQLite theo phạm vi và luôn đóng file khi rời khối with.
+
+    sqlite3.Connection.__exit__ chỉ commit/rollback chứ không đóng kết nối;
+    trên Windows điều đó giữ khóa file .db và làm sao lưu/xóa thất bại.
+    """
+    path = Path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db(db_path: Path | str = DB_PATH) -> None:
+    with _connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_stt INTEGER,
+                case_code TEXT,
+                full_name TEXT,
+                birth_date_raw TEXT,
+                birth_year INTEGER,
+                occupation TEXT,
+                workplace TEXT,
+                workplace_province TEXT,
+                workplace_commune TEXT,
+                workplace_village TEXT,
+                ethnicity TEXT,
+                gender TEXT,
+                national_id TEXT,
+                phone TEXT,
+                current_address TEXT,
+                province TEXT,
+                commune TEXT,
+                village TEXT,
+                longitude REAL,
+                latitude REAL,
+                main_diagnosis TEXT,
+                severity TEXT,
+                comorbidity_diagnosis TEXT,
+                vaccination_status TEXT,
+                vaccination_doses TEXT,
+                diagnosis_classification TEXT,
+                sample_collected TEXT,
+                sample_date TEXT,
+                lab_unit TEXT,
+                test_type TEXT,
+                test_result TEXT,
+                notes TEXT,
+                current_status TEXT,
+                epidemiological_history TEXT,
+                onset_date TEXT,
+                admission_date TEXT,
+                discharge_or_death_date TEXT,
+                complications TEXT,
+                reporter_name TEXT,
+                reporter_phone TEXT,
+                reporter_email TEXT,
+                reporting_unit TEXT,
+                reporting_province TEXT,
+                treatment_facility TEXT,
+                record_status TEXT,
+                report_datetime TEXT,
+                latest_diagnosis_change TEXT,
+                latest_status_change TEXT,
+                modified_datetime TEXT,
+                source_file TEXT NOT NULL,
+                source_sheet TEXT,
+                source_row INTEGER,
+                row_hash TEXT NOT NULL UNIQUE,
+                imported_at TEXT NOT NULL,
+                raw_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS outbreaks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_stt INTEGER,
+                disease TEXT,
+                location TEXT,
+                admin_area TEXT,
+                first_onset_date TEXT,
+                end_date TEXT,
+                status TEXT,
+                case_count INTEGER DEFAULT 0,
+                death_count INTEGER DEFAULT 0,
+                sample_count INTEGER DEFAULT 0,
+                positive_count INTEGER DEFAULT 0,
+                report_datetime TEXT,
+                reporting_unit TEXT,
+                reporting_province TEXT,
+                first_report_received_date TEXT,
+                last_onset_date TEXT,
+                source_file TEXT NOT NULL,
+                source_sheet TEXT,
+                source_row INTEGER,
+                row_hash TEXT NOT NULL UNIQUE,
+                imported_at TEXT NOT NULL,
+                raw_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS import_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                file_path TEXT,
+                entity_type TEXT NOT NULL,
+                sheet_name TEXT,
+                rows_read INTEGER DEFAULT 0,
+                inserted INTEGER DEFAULT 0,
+                duplicates INTEGER DEFAULT 0,
+                skipped INTEGER DEFAULT 0,
+                issue_count INTEGER DEFAULT 0,
+                imported_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS data_quality_issues (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                entity_id INTEGER,
+                source_file TEXT,
+                source_row INTEGER,
+                severity TEXT NOT NULL,
+                issue_type TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS duplicate_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                keep_id INTEGER NOT NULL,
+                removed_ids_json TEXT NOT NULL,
+                backup_file TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
+            CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
+            CREATE INDEX IF NOT EXISTS idx_cases_diag ON cases(main_diagnosis);
+            CREATE INDEX IF NOT EXISTS idx_cases_onset ON cases(onset_date);
+            CREATE INDEX IF NOT EXISTS idx_cases_commune ON cases(commune);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_disease ON outbreaks(disease);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_status ON outbreaks(status);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_onset ON outbreaks(first_onset_date);
+            CREATE INDEX IF NOT EXISTS idx_outbreaks_admin ON outbreaks(admin_area);
+            CREATE INDEX IF NOT EXISTS idx_quality_type ON data_quality_issues(entity_type, severity);
+            """
+        )
+
+
+def strip_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes")
+    if isinstance(value, date):

@@ -1,0 +1,271 @@
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    order = "onset_date DESC, id DESC" if entity_type == "case" else "first_onset_date DESC, id DESC"
+    page = max(1, page)
+    page_size = max(10, min(2000, page_size))
+    with _connect(db_path) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT {','.join(columns)} FROM {table}{where_sql} ORDER BY {order} LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+
+def get_record(entity_type: str, record_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    table, _ = _safe_table(entity_type)
+    with _connect(db_path) as conn:
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (record_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def save_outbreak(data: dict[str, Any], record_id: int | None = None, db_path: Path | str = DB_PATH) -> int:
+    init_db(db_path)
+    allowed = {db for _, db in OUTBREAK_FIELDS}
+    payload = _normalize_payload("outbreak", {k: v for k, v in data.items() if k in allowed})
+    payload["source_file"] = data.get("source_file") or "Nhập trực tiếp"
+    payload["source_sheet"] = data.get("source_sheet") or "Ứng dụng"
+    payload["source_row"] = data.get("source_row") or 0
+    payload["imported_at"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+    payload["raw_json"] = json.dumps(data, ensure_ascii=False, default=str)
+    payload["row_hash"] = _row_hash("outbreak", payload)
+    with _connect(db_path) as conn:
+        if record_id:
+            cols = [c for c in payload if c not in {"row_hash", "imported_at"}]
+            conn.execute(
+                f"UPDATE outbreaks SET {','.join(f'{c}=?' for c in cols)} WHERE id=?",
+                [payload[c] for c in cols] + [record_id],
+            )
+            conn.execute("DELETE FROM data_quality_issues WHERE entity_type='outbreak' AND entity_id=?", (record_id,))
+            entity_id = record_id
+        else:
+            cols = list(payload)
+            cur = conn.execute(
+                f"INSERT INTO outbreaks ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",
+                [payload[c] for c in cols],
+            )
+            entity_id = int(cur.lastrowid)
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        for severity, issue_type, description in _quality_checks("outbreak", payload):
+            conn.execute(
+                """INSERT INTO data_quality_issues
+                   (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                   VALUES ('outbreak', ?, ?, ?, ?, ?, ?, ?)""",
+                (entity_id, payload["source_file"], payload["source_row"], severity, issue_type, description, now),
+            )
+        return entity_id
+
+
+def delete_record(entity_type: str, record_id: int, db_path: Path | str = DB_PATH) -> None:
+    table, _ = _safe_table(entity_type)
+    create_backup(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+        conn.execute("DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, record_id))
+
+
+
+def _match_text(value: Any) -> str:
+    text = normalize_key(value)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _match_digits(value: Any) -> str:
+    return re.sub(r"\D+", "", strip_text(value))
+
+
+def _disease_match_text(value: Any) -> str:
+    text = _match_text(value)
+    return re.sub(r"^benh", "", text)
+
+
+def _date_distance_days(left: Any, right: Any) -> int | None:
+    a = _date_obj(strip_text(left))
+    b = _date_obj(strip_text(right))
+    if not a or not b:
+        return None
+    return abs((a.date() - b.date()).days)
+
+
+def _case_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    code_a, code_b = _match_text(a.get("case_code")), _match_text(b.get("case_code"))
+    id_a, id_b = _match_digits(a.get("national_id")), _match_digits(b.get("national_id"))
+    phone_a, phone_b = _match_digits(a.get("phone"))[-9:], _match_digits(b.get("phone"))[-9:]
+    name_a, name_b = _match_text(a.get("full_name")), _match_text(b.get("full_name"))
+
+    if code_a and code_a == code_b:
+        return 100, ["Trùng mã ca bệnh"]
+    if len(id_a) >= 9 and id_a == id_b:
+        return 100, ["Trùng CCCD/CMND"]
+    if name_a and name_a == name_b:
+        score += 35
+        reasons.append("Trùng họ tên")
+    elif name_a and name_b:
+        ratio = SequenceMatcher(None, name_a, name_b).ratio()
+        if ratio >= 0.92:
+            score += 28
+            reasons.append(f"Họ tên gần giống {ratio:.0%}")
+
+    if len(phone_a) >= 7 and phone_a == phone_b:
+        score += 35
+        reasons.append("Trùng số điện thoại")
+    if a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
+        score += 15
+        reasons.append("Trùng năm sinh")
+    if _match_text(a.get("gender")) and _match_text(a.get("gender")) == _match_text(b.get("gender")):
+        score += 5
+        reasons.append("Trùng giới tính")
+    if _match_text(a.get("commune")) and _match_text(a.get("commune")) == _match_text(b.get("commune")):
+        score += 8
+        reasons.append("Trùng xã/phường")
+    if _match_text(a.get("main_diagnosis")) and _match_text(a.get("main_diagnosis")) == _match_text(b.get("main_diagnosis")):
+        score += 7
+        reasons.append("Trùng chẩn đoán")
+    days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
+    if days == 0:
+        score += 15
+        reasons.append("Trùng ngày khởi phát")
+    elif days is not None and days <= 3:
+        score += 10
+        reasons.append(f"Khởi phát lệch {days} ngày")
+    elif days is not None and days <= 14:
+        score += 4
+        reasons.append(f"Khởi phát trong {days} ngày")
+    addr_a, addr_b = _match_text(a.get("current_address")), _match_text(b.get("current_address"))
+    if addr_a and addr_b and SequenceMatcher(None, addr_a, addr_b).ratio() >= 0.85:
+        score += 5
+        reasons.append("Địa chỉ gần giống")
+    return min(score, 99), reasons
+
+
+def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    disease_a, disease_b = _disease_match_text(a.get("disease")), _disease_match_text(b.get("disease"))
+    location_a, location_b = _match_text(a.get("location")), _match_text(b.get("location"))
+    if disease_a and disease_a == disease_b:
+        score += 30
+        reasons.append("Trùng tên bệnh")
+    else:
+        return 0, []
+    if location_a and location_a == location_b:
+        score += 45
+        reasons.append("Trùng địa điểm ổ dịch")
+    elif location_a and location_b:
+        ratio = SequenceMatcher(None, location_a, location_b).ratio()
+        if ratio >= 0.88:
+            score += 35
+            reasons.append(f"Địa điểm gần giống {ratio:.0%}")
+        elif ratio >= 0.75:
+            score += 20
+            reasons.append(f"Địa điểm tương tự {ratio:.0%}")
+    if _match_text(a.get("admin_area")) and _match_text(a.get("admin_area")) == _match_text(b.get("admin_area")):
+        score += 10
+        reasons.append("Trùng địa bàn")
+    days = _date_distance_days(a.get("first_onset_date"), b.get("first_onset_date"))
+    if days == 0:
+        score += 20
+        reasons.append("Trùng ngày khởi phát ca đầu")
+    elif days is not None and days <= 7:
+        score += 15
+        reasons.append(f"Khởi phát ca đầu lệch {days} ngày")
+    elif days is not None and days <= 14:
+        score += 8
+        reasons.append(f"Khởi phát ca đầu trong {days} ngày")
+    if _match_text(a.get("reporting_unit")) and _match_text(a.get("reporting_unit")) == _match_text(b.get("reporting_unit")):
+        score += 5
+        reasons.append("Trùng đơn vị báo cáo")
+    return min(score, 99), reasons
+
+
+def find_duplicate_groups(
+    entity_type: str,
+    *,
+    min_score: int = 65,
+    max_records: int = 20000,
+    db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp."""
+    table, _ = _safe_table(entity_type)
+    min_score = max(50, min(100, int(min_score)))
+    if entity_type == "case":
+        fields = [
+            "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
+            "national_id", "phone", "current_address", "commune", "main_diagnosis",
+            "onset_date", "report_datetime", "reporting_unit", "source_file", "source_row",
+        ]
+    else:
+        fields = [
+            "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date",
+            "status", "case_count", "report_datetime", "reporting_unit", "source_file", "source_row",
+        ]
+    with _connect(db_path) as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT {','.join(fields)} FROM {table} ORDER BY id LIMIT ?", (max_records,)
+        ).fetchall()]
+    if len(rows) < 2:
+        return []
+
+    buckets: dict[str, list[int]] = {}
+    for index, row in enumerate(rows):
+        keys: set[str] = set()
+        if entity_type == "case":
+            code = _match_text(row.get("case_code"))
+            national_id = _match_digits(row.get("national_id"))
+            phone = _match_digits(row.get("phone"))[-9:]
+            name = _match_text(row.get("full_name"))
+            year = row.get("birth_year") or ""
+            commune = _match_text(row.get("commune"))
+            if code: keys.add("code:" + code)
+            if len(national_id) >= 9: keys.add("nid:" + national_id)
+            if len(phone) >= 7: keys.add("phone:" + phone)
+            if name and year: keys.add(f"nameyear:{name}:{year}")
+            if name and commune: keys.add(f"namearea:{name}:{commune}")
+            if name: keys.add("name:" + name)
+        else:
+            disease = _disease_match_text(row.get("disease"))
+            location = _match_text(row.get("location"))
+            area = _match_text(row.get("admin_area"))
+            if disease and location: keys.add(f"event:{disease}:{location}")
+            if disease and area: keys.add(f"eventarea:{disease}:{area}")
+        for key in keys:
+            buckets.setdefault(key, []).append(index)
+
+    candidate_pairs: set[tuple[int, int]] = set()
+    for indexes in buckets.values():
+        if len(indexes) > 250:
+            indexes = indexes[:250]
+        for pos, left in enumerate(indexes):
+            for right in indexes[pos + 1:]:
+                candidate_pairs.add((min(left, right), max(left, right)))
+
+    edges: list[tuple[int, int, int, list[str]]] = []
+    scorer = _case_pair_score if entity_type == "case" else _outbreak_pair_score
+    for left, right in candidate_pairs:
+        score, reasons = scorer(rows[left], rows[right])
+        if score >= min_score:
+            edges.append((left, right, score, reasons))
+    if not edges:
+        return []
+
+    parent = list(range(len(rows)))
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb: parent[rb] = ra
+    for left, right, _, _ in edges:
+        union(left, right)
+
+    groups: dict[int, set[int]] = {}
+    for left, right, _, _ in edges:
+        root = find(left)
+        groups.setdefault(root, set()).update((left, right))
+
+    result: list[dict[str, Any]] = []
+    for group_no, indexes in enumerate(sorted(groups.values(), key=lambda g: min(rows[i]["id"] for i in g)), start=1):
+        group_edges = [edge for edge in edges if edge[0] in indexes and edge[1] in indexes]

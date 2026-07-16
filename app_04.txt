@@ -1,0 +1,241 @@
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất cảnh báo", "bao_cao_chat_luong.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        columns = [label for _, label in self.model.columns]
+        rows = [[r.get(key, "") for key, _ in self.model.columns] for r in self.model.rows]
+        core.export_rows(path, columns, rows)
+        QMessageBox.information(self, "Đã xuất", path)
+
+
+class SqlTab(QWidget):
+    QUICK_SQL = {
+        "Tổng quan ổ dịch": """SELECT disease AS ten_benh, COUNT(*) AS so_o_dich, SUM(case_count) AS so_ca, SUM(death_count) AS tu_vong\nFROM outbreaks\nGROUP BY disease\nORDER BY so_o_dich DESC;""",
+        "Ổ dịch đang hoạt động": """SELECT disease, location, first_onset_date, case_count, reporting_unit\nFROM outbreaks\nWHERE status = 'Đang hoạt động'\nORDER BY first_onset_date DESC;""",
+        "Báo cáo ổ dịch muộn trên 2 ngày": """SELECT disease, location, first_onset_date, report_datetime,\n       CAST(julianday(substr(report_datetime,1,10)) - julianday(first_onset_date) AS INTEGER) AS so_ngay\nFROM outbreaks\nWHERE first_onset_date <> '' AND report_datetime <> ''\n  AND julianday(substr(report_datetime,1,10)) - julianday(first_onset_date) > 2\nORDER BY so_ngay DESC;""",
+        "Ca bệnh theo chẩn đoán": """SELECT main_diagnosis, COUNT(*) AS so_ca\nFROM cases\nGROUP BY main_diagnosis\nORDER BY so_ca DESC;""",
+    }
+
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        title = QLabel("Truy vấn SQL chỉ đọc")
+        title.setObjectName("sectionTitle")
+        self.quick = QComboBox()
+        self.quick.addItem("Chọn câu lệnh nhanh...")
+        self.quick.addItems(self.QUICK_SQL.keys())
+        self.quick.currentTextChanged.connect(self.load_quick)
+        run = QPushButton("Chạy truy vấn")
+        run.clicked.connect(self.run_query)
+        export = QPushButton("Xuất kết quả")
+        export.setObjectName("secondary")
+        export.clicked.connect(self.export)
+        row.addWidget(title)
+        row.addStretch()
+        row.addWidget(self.quick)
+        row.addWidget(run)
+        row.addWidget(export)
+        root.addLayout(row)
+        self.editor = QPlainTextEdit("SELECT * FROM outbreaks ORDER BY first_onset_date DESC LIMIT 200;")
+        self.editor.setMaximumHeight(150)
+        self.editor.setFont(QFont("Consolas", 10))
+        root.addWidget(self.editor)
+        self.table = QTableView()
+        self.model = DictTableModel()
+        self.table.setModel(self.model)
+        self.table.setAlternatingRowColors(True)
+        root.addWidget(self.table)
+
+    def load_quick(self, text: str):
+        if text in self.QUICK_SQL:
+            self.editor.setPlainText(self.QUICK_SQL[text])
+
+    def run_query(self):
+        try:
+            columns, values = core.execute_select(self.editor.toPlainText())
+            rows = [dict(zip(columns, row)) for row in values]
+            self.model.set_data(rows, [(c, c) for c in columns])
+            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            QMessageBox.information(self, "Kết quả", f"Trả về {len(rows):,} dòng (tối đa 5.000).")
+        except Exception as exc:
+            QMessageBox.critical(self, "Lỗi truy vấn", str(exc))
+
+    def export(self):
+        if not self.model.rows:
+            QMessageBox.information(self, "Chưa có kết quả", "Hãy chạy truy vấn trước.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất kết quả", "ket_qua_truy_van.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        columns = [label for _, label in self.model.columns]
+        rows = [[r.get(key, "") for key, _ in self.model.columns] for r in self.model.rows]
+        core.export_rows(path, columns, rows)
+        QMessageBox.information(self, "Đã xuất", path)
+
+
+class SettingsTab(QWidget):
+    def __init__(self, config: DeploymentConfig):
+        super().__init__()
+        self.config = config
+        root = QVBoxLayout(self)
+        title = QLabel("Dữ liệu, sao lưu và cập nhật")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        info = QTextEdit()
+        info.setReadOnly(True)
+        info.setMaximumHeight(210)
+        deployment_detail = (
+            f"Máy chủ: {config.server_url}" if config.is_workstation
+            else f"CSDL: {local_core.DB_PATH}"
+        )
+        info.setHtml(
+            f"<b>Phiên bản:</b> {core.VERSION}<br>"
+            f"<b>Chế độ:</b> {mode_label(config.mode)}<br>"
+            f"<b>{deployment_detail}</b><br>"
+            f"<b>Thư mục cấu hình cục bộ:</b> {local_core.USER_DATA_DIR}<br><br>"
+            "CSDL nghiệp vụ không nằm trong bộ cài. Cài đè hoặc cập nhật không ghi đè thư mục dữ liệu người dùng."
+        )
+        root.addWidget(info)
+
+        update_box = QGroupBox("Cập nhật trực tiếp từ Google Drive")
+        update_layout = QVBoxLayout(update_box)
+        self.update_status = QLabel(
+            "Bấm kiểm tra để đọc phiên bản mới từ update_manifest.json trên Google Drive."
+        )
+        self.update_status.setWordWrap(True)
+        update_layout.addWidget(self.update_status)
+        update_row = QHBoxLayout()
+        self.update_button = QPushButton("Kiểm tra cập nhật")
+        self.update_button.clicked.connect(lambda: self.check_update(silent=False))
+        update_row.addWidget(self.update_button)
+        update_row.addStretch()
+        update_layout.addLayout(update_row)
+        root.addWidget(update_box)
+
+        buttons = QHBoxLayout()
+        backup = QPushButton("Sao lưu CSDL ngay")
+        backup.clicked.connect(self.backup)
+        open_data = QPushButton("Mở thư mục dữ liệu" if not config.is_workstation else "Mở thư mục cấu hình")
+        open_data.setObjectName("secondary")
+        open_data.clicked.connect(lambda: local_core.open_folder(local_core.DATA_DIR if not config.is_workstation else local_core.USER_DATA_DIR))
+        open_backup = QPushButton("Mở thư mục sao lưu")
+        open_backup.setObjectName("secondary")
+        open_backup.clicked.connect(lambda: local_core.open_folder(local_core.BACKUP_DIR))
+        open_backup.setVisible(not config.is_workstation)
+        buttons.addWidget(backup)
+        buttons.addWidget(open_data)
+        buttons.addWidget(open_backup)
+        buttons.addStretch()
+        root.addLayout(buttons)
+        root.addStretch()
+
+    def backup(self):
+        try:
+            path = core.create_backup()
+            QMessageBox.information(self, "Đã sao lưu", str(path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể sao lưu", str(exc))
+
+    def check_update(self, silent: bool = False):
+        self.update_button.setEnabled(False)
+        self.update_status.setText("Đang kiểm tra phiên bản trên Google Drive...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            info = update_manager.fetch_manifest()
+        except Exception as exc:
+            self.update_status.setText(f"Không kiểm tra được cập nhật: {exc}")
+            if not silent:
+                QMessageBox.warning(self, "Không kiểm tra được cập nhật", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.update_button.setEnabled(True)
+
+        if not update_manager.is_newer_version(info.version, core.VERSION):
+            self.update_status.setText(f"Đang dùng phiên bản mới nhất: {core.VERSION}.")
+            if not silent:
+                QMessageBox.information(self, "Không có bản mới", f"Phiên bản hiện tại: {core.VERSION}")
+            return
+
+        self.update_status.setText(f"Có phiên bản {info.version}: {info.notes or 'Không có ghi chú.'}")
+        answer = QMessageBox.question(
+            self,
+            "Có bản cập nhật mới",
+            f"Phiên bản hiện tại: {core.VERSION}\n"
+            f"Phiên bản mới: {info.version}\n\n"
+            f"{info.notes or 'Không có ghi chú phát hành.'}\n\n"
+            "Ứng dụng sẽ sao lưu CSDL, tải gói cập nhật, tự đóng rồi mở lại. Tiếp tục?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            backup_path = core.create_backup()
+            cache_dir = core.UPDATE_CACHE_DIR
+            zip_path = cache_dir / info.file_name
+            progress = QProgressDialog("Đang tải bản cập nhật từ Google Drive...", "Hủy", 0, 100, self)
+            progress.setWindowTitle("Cập nhật ứng dụng")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+
+            def on_progress(downloaded: int, total: int | None):
+                if progress.wasCanceled():
+                    raise update_manager.UpdateError("Đã hủy tải bản cập nhật.")
+                if total:
+                    progress.setMaximum(100)
+                    progress.setValue(min(99, int(downloaded * 100 / total)))
+                else:
+                    progress.setMaximum(0)
+                QApplication.processEvents()
+
+            update_manager.download_drive_file(info.release_file_id, zip_path, on_progress, timeout=180)
+            progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cập nhật...")
+            progress.setMaximum(0)
+            QApplication.processEvents()
+            update_manager.verify_download(zip_path, info.sha256)
+            progress.close()
+            self.update_status.setText(
+                f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}."
+            )
+            update_manager.launch_update_and_exit(zip_path, core.BASE_DIR, info.package_root)
+            QApplication.quit()
+        except Exception as exc:
+            try:
+                progress.close()
+            except Exception:
+                pass
+            self.update_status.setText(f"Cập nhật chưa hoàn tất: {exc}")
+            QMessageBox.critical(self, "Không thể cập nhật", str(exc))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, config: DeploymentConfig):
+        super().__init__()
+        self.config = config
+        self.server_controller = LanServerController(config) if config.is_server else None
+        self.setWindowTitle(APP_TITLE)
+        self.resize(1500, 900)
+        toolbar = QToolBar()
+        toolbar.setMovable(False)
+        toolbar.addWidget(QLabel(f"CDC • GIÁM SÁT DỊCH BỆNH • {mode_label(config.mode).upper()}"))
+        self.addToolBar(toolbar)
+        self.tabs = QTabWidget()
+        self.dashboard = DashboardTab()
+        self.cases = RecordsTab("case")
+        self.outbreaks = RecordsTab("outbreak")
+        self.duplicates = DuplicateTab(self.refresh_after_duplicate)
+        self.quality = QualityTab()
+        self.import_tab = ImportTab(self.refresh_all)
+        self.sql = SqlTab()
+        self.settings = SettingsTab(config)
+        self.server_tab = ServerTab(self.server_controller, config) if self.server_controller else None
+        self.tabs.addTab(self.dashboard, "Tổng quan")
+        self.tabs.addTab(self.cases, "Ca bệnh")
+        self.tabs.addTab(self.outbreaks, "Ổ dịch")
+        self.tabs.addTab(self.duplicates, "Lọc trùng")
+        self.tabs.addTab(self.import_tab, "Nhập Excel")
+        self.tabs.addTab(self.quality, "Chất lượng dữ liệu")
+        self.tabs.addTab(self.sql, "Truy vấn SQL")
+        if self.server_tab:
+            self.tabs.addTab(self.server_tab, "Server")
+        self.tabs.addTab(self.settings, "Sao lưu & cập nhật")

@@ -1,0 +1,274 @@
+    def selected_group(self) -> dict[str, Any] | None:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một nhóm trùng trong danh sách.")
+            return None
+        row = indexes[0].row()
+        return self.groups[row] if 0 <= row < len(self.groups) else None
+
+    def review_selected(self):
+        group = self.selected_group()
+        if not group:
+            return
+        dialog = DuplicateReviewDialog(group, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        keep_id = dialog.keep_id
+        remove_ids = [int(record_id) for record_id in group["record_ids"] if int(record_id) != keep_id]
+        answer = QMessageBox.question(
+            self,
+            "Xác nhận xử lý trùng",
+            f"Giữ bản ghi ID {keep_id} và xóa {len(remove_ids)} bản ghi còn lại?\n"
+            "CSDL sẽ được sao lưu trước khi xóa.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = core.remove_duplicate_records(group["entity_type"], keep_id, remove_ids)
+            QMessageBox.information(
+                self,
+                "Đã xử lý",
+                f"Đã giữ ID {result['kept_id']} và xóa {result['removed_count']} bản ghi.\n"
+                f"Bản sao lưu: {result['backup_file']}",
+            )
+            if self.after_change:
+                self.after_change()
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể xử lý trùng", str(exc))
+
+    def export(self):
+        if not self.groups:
+            QMessageBox.information(self, "Không có dữ liệu", "Hãy quét dữ liệu trước khi xuất.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Xuất kết quả lọc trùng", "ket_qua_loc_trung.xlsx", "Excel (*.xlsx);;CSV (*.csv)"
+        )
+        if not path:
+            return
+        columns = ["Nhóm", "Mức", "Điểm", "Số bản ghi", "Danh sách ID", "Tóm tắt", "Lý do"]
+        rows = [[
+            g["group_id"], g["confidence"], g["score"], g["record_count"],
+            ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"],
+        ] for g in self.groups]
+        core.export_rows(path, columns, rows)
+        QMessageBox.information(self, "Đã xuất", path)
+
+
+class WorkstationConnectionDialog(QDialog):
+    def __init__(self, config: DeploymentConfig, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Kết nối máy chủ LAN")
+        self.resize(560, 220)
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.url = QLineEdit(config.server_url)
+        self.url.setPlaceholderText("http://192.168.1.10:8765")
+        self.password = QLineEdit(config.password)
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("Để trống nếu máy chủ không đặt mật khẩu")
+        form.addRow("Địa chỉ máy chủ:", self.url)
+        form.addRow("Mật khẩu:", self.password)
+        root.addLayout(form)
+        self.status = QLabel("Nhập IP/cổng của máy chủ trong cùng mạng LAN.")
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+        row = QHBoxLayout()
+        test = QPushButton("Kiểm tra kết nối")
+        test.clicked.connect(self.test_connection)
+        row.addWidget(test)
+        row.addStretch()
+        root.addLayout(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _save_values(self):
+        url = self.url.text().strip().rstrip("/")
+        if not (url.startswith("http://") or url.startswith("https://")):
+            raise ValueError("Địa chỉ máy chủ phải bắt đầu bằng http:// hoặc https://")
+        self.config.server_url = url
+        self.config.password = self.password.text()
+        save_config(self.config)
+
+    def test_connection(self):
+        try:
+            self._save_values()
+            import remote_core
+            info = remote_core.health()
+            self.status.setText(f"Kết nối thành công: {info.get('app')} {info.get('version')} — cổng {info.get('port')}")
+        except Exception as exc:
+            self.status.setText(f"Kết nối thất bại: {exc}")
+
+    def accept(self):
+        try:
+            self._save_values()
+        except Exception as exc:
+            QMessageBox.warning(self, "Cấu hình chưa hợp lệ", str(exc))
+            return
+        super().accept()
+
+
+class ServerTab(QWidget):
+    def __init__(self, controller: LanServerController, config: DeploymentConfig):
+        super().__init__()
+        self.controller = controller
+        self.config = config
+        root = QVBoxLayout(self)
+        title = QLabel("Máy chủ chia sẻ dữ liệu trong mạng LAN")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        note = QLabel(
+            "Máy chủ sử dụng CSDL SQLite tại máy này và chia sẻ dữ liệu qua API HTTP trong mạng LAN. "
+            "Máy trạm không mở trực tiếp file .db. Khi Windows hỏi quyền tường lửa, chỉ cho phép mạng Riêng tư."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
+        box = QGroupBox("Cấu hình server")
+        form = QFormLayout(box)
+        self.port = QSpinBox()
+        self.port.setRange(1, 65535)
+        self.port.setValue(config.server_port)
+        self.password = QLineEdit(config.password)
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("Để trống = không yêu cầu mật khẩu")
+        self.auto_start = QCheckBox("Tự khởi động server khi mở ứng dụng")
+        self.auto_start.setChecked(config.auto_start_server)
+        form.addRow("Cổng LAN:", self.port)
+        form.addRow("Mật khẩu máy trạm:", self.password)
+        form.addRow("", self.auto_start)
+        root.addWidget(box)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+        row = QHBoxLayout()
+        save = QPushButton("Lưu cấu hình")
+        save.clicked.connect(self.save_settings)
+        self.start_button = QPushButton("Khởi động server")
+        self.start_button.clicked.connect(self.start_server)
+        self.stop_button = QPushButton("Dừng server")
+        self.stop_button.setObjectName("danger")
+        self.stop_button.clicked.connect(self.stop_server)
+        row.addWidget(save)
+        row.addWidget(self.start_button)
+        row.addWidget(self.stop_button)
+        row.addStretch()
+        root.addLayout(row)
+        detail = QTextEdit()
+        detail.setReadOnly(True)
+        detail.setMaximumHeight(170)
+        detail.setHtml(
+            f"<b>CSDL máy chủ:</b> {local_core.DB_PATH}<br>"
+            f"<b>Thư mục dữ liệu:</b> {local_core.DATA_DIR}<br><br>"
+            "Máy chủ tự tạo CSDL khi chưa có. Mật khẩu để trống nghĩa là mọi máy trong LAN biết địa chỉ đều có thể kết nối."
+        )
+        root.addWidget(detail)
+        root.addStretch()
+        self.refresh()
+
+    def save_settings(self):
+        was_running = self.controller.running
+        if was_running:
+            self.controller.stop()
+        self.config.server_port = self.port.value()
+        self.config.password = self.password.text()
+        self.config.auto_start_server = self.auto_start.isChecked()
+        save_config(self.config)
+        self.controller.config = self.config
+        if was_running:
+            self.start_server()
+        else:
+            self.refresh()
+
+    def start_server(self):
+        try:
+            self.save_settings_without_restart()
+            address = self.controller.start()
+            self.status.setText(f"Server đang hoạt động tại <b>{address}</b>. Máy trạm dùng địa chỉ này để kết nối.")
+        except Exception as exc:
+            self.status.setText(f"Không khởi động được server: {exc}")
+        self.refresh_buttons()
+
+    def save_settings_without_restart(self):
+        self.config.server_port = self.port.value()
+        self.config.password = self.password.text()
+        self.config.auto_start_server = self.auto_start.isChecked()
+        save_config(self.config)
+        self.controller.config = self.config
+
+    def stop_server(self):
+        self.controller.stop()
+        self.refresh()
+
+    def auto_start_server(self):
+        if self.config.auto_start_server and not self.controller.running:
+            self.start_server()
+
+    def refresh_buttons(self):
+        self.start_button.setEnabled(not self.controller.running)
+        self.stop_button.setEnabled(self.controller.running)
+
+    def refresh(self):
+        if self.controller.running:
+            auth = "có mật khẩu" if self.config.password else "không mật khẩu"
+            self.status.setText(f"Server đang hoạt động tại <b>{self.controller.address}</b> — {auth}.")
+        else:
+            self.status.setText("Server đang dừng.")
+        self.refresh_buttons()
+
+
+class QualityTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        title = QLabel("Chất lượng dữ liệu")
+        title.setObjectName("sectionTitle")
+        self.entity = QComboBox()
+        self.entity.addItem("Tất cả loại", "")
+        self.entity.addItem("Ca bệnh", "case")
+        self.entity.addItem("Ổ dịch", "outbreak")
+        self.severity = QComboBox()
+        self.severity.addItem("Tất cả mức", "")
+        self.severity.addItem("Lỗi", "error")
+        self.severity.addItem("Cảnh báo", "warning")
+        self.severity.addItem("Thông tin", "info")
+        refresh = QPushButton("Làm mới")
+        refresh.clicked.connect(self.refresh)
+        export = QPushButton("Xuất danh sách")
+        export.setObjectName("secondary")
+        export.clicked.connect(self.export)
+        row.addWidget(title)
+        row.addStretch()
+        row.addWidget(self.entity)
+        row.addWidget(self.severity)
+        row.addWidget(refresh)
+        row.addWidget(export)
+        root.addLayout(row)
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.model = DictTableModel(columns=[
+            ("severity", "Mức"), ("entity_type", "Đối tượng"), ("entity_id", "ID"),
+            ("issue_type", "Loại lỗi"), ("description", "Mô tả"),
+            ("source_file", "File nguồn"), ("source_row", "Dòng"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table)
+        self.entity.currentIndexChanged.connect(self.refresh)
+        self.severity.currentIndexChanged.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self):
+        rows = core.list_quality_issues(severity=self.severity.currentData() or "", entity_type=self.entity.currentData() or "")
+        for row in rows:
+            row["entity_type"] = "Ca bệnh" if row["entity_type"] == "case" else "Ổ dịch"
+            row["severity"] = {"error": "Lỗi", "warning": "Cảnh báo", "info": "Thông tin"}.get(row["severity"], row["severity"])
+        self.model.set_data(rows)
+
+    def export(self):
+        if not self.model.rows:
+            QMessageBox.information(self, "Không có dữ liệu", "Danh sách cảnh báo đang trống.")
+            return

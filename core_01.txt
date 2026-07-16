@@ -1,0 +1,270 @@
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def normalize_key(value: Any) -> str:
+    text = strip_text(value).lower()
+    text = text.replace("đ", "d")
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def normalize_header(value: Any) -> str:
+    """Chuẩn hóa tiêu đề Excel, chịu được xuống dòng, dấu *, /, ngoặc và đánh số cột."""
+    text = normalize_key(value).replace("\n", " ").replace("\r", " ")
+    text = re.sub(r"^\s*\d+[\.\)]\s*", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_date_value(value: Any, with_time: bool = False) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes") if with_time else value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = strip_text(value)
+    fmts = (
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%H:%M %d/%m/%Y",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    )
+    for fmt in fmts:
+        try:
+            dt = datetime.strptime(text, fmt)
+            return dt.isoformat(sep=" ", timespec="minutes") if with_time else dt.date().isoformat()
+        except ValueError:
+            continue
+    return text
+
+
+def parse_int(value: Any) -> int:
+    if value is None or value == "":
+        return 0
+    try:
+        return int(float(str(value).replace(",", ".")))
+    except (ValueError, TypeError):
+        return 0
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (ValueError, TypeError):
+        return None
+
+
+def extract_birth_year(value: Any) -> int | None:
+    text = strip_text(value)
+    years = re.findall(r"(?:19|20)\d{2}", text)
+    if years:
+        return int(years[-1])
+    return None
+
+
+def extract_admin_area(location: str) -> str:
+    if not location:
+        return ""
+    parts = [p.strip() for p in re.split(r"\s+-\s+", location) if p.strip()]
+    if len(parts) >= 2:
+        if "hải phòng" in normalize_key(parts[-1]) and len(parts) >= 2:
+            return parts[-2]
+        return parts[-1]
+    patterns = re.findall(r"(?:Phường|Xã|Đặc khu|Thị trấn)\s+[^,;]+", location, flags=re.I)
+    return patterns[-1].strip() if patterns else ""
+
+
+def _row_hash(entity_type: str, payload: dict[str, Any]) -> str:
+    canonical = {k: payload.get(k, "") for k in sorted(payload) if k not in {"source_file", "source_sheet", "source_row"}}
+    raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(entity_type.encode("utf-8") + b"|" + raw).hexdigest()
+
+
+CASE_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "source_stt": ("số thứ tự", "stt."),
+    "case_code": ("mã ca bệnh", "mã bệnh nhân", "mã trường hợp", "mã số ca bệnh"),
+    "full_name": ("họ và tên", "tên bệnh nhân", "họ tên bệnh nhân"),
+    "birth_date_raw": ("năm sinh", "ngày tháng năm sinh"),
+    "national_id": ("cccd", "cmnd cccd", "số cmnd", "số cccd", "cccd cmnd"),
+    "phone": ("số điện thoại", "sđt", "điện thoại liên hệ"),
+    "current_address": ("địa chỉ hiện nay", "nơi cư trú hiện nay", "địa chỉ nơi ở hiện nay"),
+    "province": ("tỉnh thành phố", "tỉnh tp", "tỉnh nơi ở"),
+    "commune": ("phường xã", "xã phường", "xã nơi ở"),
+    "village": ("thôn tổ", "thôn xóm", "tổ dân phố"),
+    "main_diagnosis": ("tên bệnh", "chẩn đoán", "bệnh chẩn đoán chính"),
+    "onset_date": ("ngày phát bệnh", "ngày bắt đầu khởi phát"),
+    "report_datetime": ("ngày báo cáo", "thời điểm báo cáo", "ngày giờ báo cáo"),
+    "reporting_unit": ("cơ quan báo cáo", "đơn vị gửi báo cáo"),
+    "record_status": ("trạng thái bản ghi", "tình trạng bản ghi"),
+}
+
+OUTBREAK_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "source_stt": ("số thứ tự", "stt."),
+    "disease": ("bệnh", "tên dịch bệnh"),
+    "location": ("địa điểm ổ dịch", "nơi xảy ra ổ dịch", "địa chỉ ổ dịch"),
+    "first_onset_date": ("ngày khởi phát ca đầu tiên", "ngày khởi phát trường hợp đầu tiên"),
+    "end_date": ("ngày kết thúc ổ dịch", "ngày ổ dịch kết thúc"),
+    "case_count": ("số mắc", "tổng số ca mắc"),
+    "death_count": ("số tử vong", "tổng số ca tử vong"),
+    "sample_count": ("số mẫu xét nghiệm", "tổng số mẫu xn"),
+    "positive_count": ("số mẫu dương tính", "số mẫu dương", "số mẫu xn dương tính"),
+    "report_datetime": ("thời gian báo cáo", "ngày giờ báo cáo"),
+    "reporting_province": ("tỉnh đơn vị báo cáo", "tỉnh thành báo cáo"),
+    "first_report_received_date": ("ngày nhận báo cáo đầu tiên", "ngày nhận báo cáo ổ dịch đầu tiên"),
+    "last_onset_date": ("ngày khởi phát ca cuối cùng", "ngày khởi phát trường hợp cuối cùng"),
+}
+
+
+def _make_header_map(fields: Sequence[tuple[str, str]], aliases: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for label, db_field in fields:
+        result[normalize_header(label)] = db_field
+        for alias in aliases.get(db_field, ()):
+            result[normalize_header(alias)] = db_field
+    return result
+
+
+def _mapping_for_row(row: Sequence[Any], header_map: dict[str, str]) -> dict[int, str]:
+    mapping: dict[int, str] = {}
+    used_fields: set[str] = set()
+    for idx, value in enumerate(row):
+        key = normalize_header(value)
+        field = header_map.get(key)
+        if field and field not in used_fields:
+            mapping[idx] = field
+            used_fields.add(field)
+    return mapping
+
+
+def _find_header_row(ws) -> tuple[str, int, dict[int, str]] | None:
+    case_map = _make_header_map(CASE_FIELDS, CASE_HEADER_ALIASES)
+    outbreak_map = _make_header_map(OUTBREAK_FIELDS, OUTBREAK_HEADER_ALIASES)
+    best: tuple[int, str, int, dict[int, str]] | None = None
+
+    # Một số hệ thống xuất XLSX khai báo dimension=A1 dù thực tế có nhiều cột/dòng.
+    # reset_dimensions buộc openpyxl đọc theo dữ liệu XML thực tế.
+    reset = getattr(ws, "reset_dimensions", None)
+    if callable(reset):
+        reset()
+
+    for row_no, row in enumerate(ws.iter_rows(min_row=1, max_row=60, values_only=True), start=1):
+        case_mapping = _mapping_for_row(row, case_map)
+        outbreak_mapping = _mapping_for_row(row, outbreak_map)
+        case_fields = set(case_mapping.values())
+        outbreak_fields = set(outbreak_mapping.values())
+
+        case_core = len(case_fields & {
+            "case_code", "full_name", "birth_date_raw", "main_diagnosis",
+            "onset_date", "report_datetime", "reporting_unit"
+        })
+        outbreak_core = len(outbreak_fields & {
+            "disease", "location", "first_onset_date", "case_count",
+            "report_datetime", "reporting_unit"
+        })
+
+        if "full_name" in case_fields and case_core >= 3 and len(case_fields) >= 6:
+            candidate = (len(case_fields), "case", row_no, case_mapping)
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+        if {"disease", "location"}.issubset(outbreak_fields) and outbreak_core >= 4 and len(outbreak_fields) >= 5:
+            candidate = (len(outbreak_fields), "outbreak", row_no, outbreak_mapping)
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+
+    if best:
+        _, entity_type, row_no, mapping = best
+        return entity_type, row_no, mapping
+    return None
+
+
+def detect_excel(path: Path | str) -> tuple[str, str, int, dict[int, str]]:
+    wb = load_workbook(path, read_only=True, data_only=True)
+    diagnostics: list[str] = []
+    try:
+        for ws in wb.worksheets:
+            found = _find_header_row(ws)
+            if found:
+                entity_type, header_row, mapping = found
+                return entity_type, ws.title, header_row, mapping
+            diagnostics.append(ws.title)
+    finally:
+        wb.close()
+    sheets = ", ".join(diagnostics) if diagnostics else "không có trang tính"
+    raise ValueError(
+        "Không nhận diện được cấu trúc file ca bệnh hoặc ổ dịch. "
+        f"Đã kiểm tra: {sheets}. Hãy bảo đảm file có hàng tiêu đề chứa các cột như "
+        "Họ tên/Mã số/Ngày khởi phát hoặc Tên bệnh/Địa điểm xảy ra ổ dịch."
+    )
+
+
+def _normalize_payload(entity_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    clean: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in DATE_FIELDS:
+            clean[key] = parse_date_value(value, with_time=False)
+        elif key in DATETIME_FIELDS:
+            clean[key] = parse_date_value(value, with_time=True)
+        elif key in INTEGER_FIELDS:
+            clean[key] = parse_int(value)
+        elif key in FLOAT_FIELDS:
+            clean[key] = parse_float(value)
+        else:
+            clean[key] = strip_text(value)
+    if entity_type == "case":
+        clean["birth_year"] = extract_birth_year(clean.get("birth_date_raw"))
+    else:
+        clean["admin_area"] = extract_admin_area(clean.get("location", ""))
+    return clean
+
+
+def _is_empty_payload(entity_type: str, payload: dict[str, Any]) -> bool:
+    if entity_type == "case":
+        fields = ("case_code", "full_name", "main_diagnosis", "onset_date", "report_datetime")
+    else:
+        fields = ("disease", "location", "first_onset_date", "report_datetime")
+    return not any(payload.get(k) not in (None, "", 0) for k in fields)
+
+
+def _date_obj(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _quality_checks(entity_type: str, payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    issues: list[tuple[str, str, str]] = []
+    if entity_type == "case":
+        if not payload.get("full_name"):
+            issues.append(("error", "Thiếu họ tên", "Ca bệnh chưa có họ tên."))
+        if not payload.get("case_code"):
+            issues.append(("warning", "Thiếu mã số", "Ca bệnh chưa có mã số trên hệ thống."))
+        if not payload.get("main_diagnosis"):
+            issues.append(("error", "Thiếu chẩn đoán", "Ca bệnh chưa có chẩn đoán chính."))
+        if not payload.get("onset_date"):
+            issues.append(("warning", "Thiếu ngày khởi phát", "Không xác định được ngày khởi phát."))
+        onset = _date_obj(payload.get("onset_date", ""))
+        report = _date_obj(payload.get("report_datetime", ""))
+        if onset and report:
+            delay = (report.date() - onset.date()).days
+            if delay < 0:
+                issues.append(("error", "Ngày báo cáo không hợp lệ", "Thời gian báo cáo trước ngày khởi phát."))
+            elif delay > 2:
+                issues.append(("warning", "Báo cáo muộn", f"Báo cáo sau khởi phát {delay} ngày."))
+        lon, lat = payload.get("longitude"), payload.get("latitude")
+        if lon is not None and not (-180 <= lon <= 180):
+            issues.append(("error", "Kinh độ không hợp lệ", f"Kinh độ {lon} ngoài khoảng -180 đến 180."))
+        if lat is not None and not (-90 <= lat <= 90):

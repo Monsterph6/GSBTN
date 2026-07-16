@@ -1,0 +1,244 @@
+            issues.append(("error", "Vĩ độ không hợp lệ", f"Vĩ độ {lat} ngoài khoảng -90 đến 90."))
+    else:
+        if not payload.get("disease"):
+            issues.append(("error", "Thiếu tên bệnh", "Ổ dịch chưa có tên bệnh."))
+        if not payload.get("location"):
+            issues.append(("error", "Thiếu địa điểm", "Ổ dịch chưa có địa điểm xảy ra."))
+        if payload.get("positive_count", 0) > payload.get("sample_count", 0):
+            issues.append(("error", "Số mẫu không hợp lệ", "Số mẫu dương tính lớn hơn tổng số mẫu xét nghiệm."))
+        if payload.get("death_count", 0) > payload.get("case_count", 0):
+            issues.append(("error", "Số tử vong không hợp lệ", "Số tử vong lớn hơn số ca mắc."))
+        status = normalize_key(payload.get("status"))
+        if "da ket thuc" in status and not payload.get("end_date"):
+            issues.append(("error", "Thiếu ngày kết thúc", "Ổ dịch đã kết thúc nhưng chưa có ngày kết thúc hoạt động."))
+        if "dang hoat dong" in status and payload.get("end_date"):
+            issues.append(("error", "Trạng thái không khớp", "Ổ dịch đang hoạt động nhưng đã có ngày kết thúc."))
+        first = _date_obj(payload.get("first_onset_date", ""))
+        last = _date_obj(payload.get("last_onset_date", ""))
+        end = _date_obj(payload.get("end_date", ""))
+        report = _date_obj(payload.get("report_datetime", ""))
+        if first and last and last < first:
+            issues.append(("error", "Ngày khởi phát không hợp lệ", "Ca cuối khởi phát trước ca đầu."))
+        if first and end and end < first:
+            issues.append(("error", "Ngày kết thúc không hợp lệ", "Ngày kết thúc trước ngày khởi phát ca đầu."))
+        if last and end and end < last:
+            issues.append(("error", "Ngày kết thúc không hợp lệ", "Ngày kết thúc trước ngày khởi phát ca cuối."))
+        if first and report:
+            delay = (report.date() - first.date()).days
+            if delay < 0:
+                issues.append(("error", "Ngày báo cáo không hợp lệ", "Ngày báo cáo trước ngày khởi phát ca đầu."))
+            elif delay > 2:
+                issues.append(("warning", "Báo cáo muộn", f"Báo cáo ổ dịch sau khởi phát ca đầu {delay} ngày."))
+        if not payload.get("first_report_received_date"):
+            issues.append(("info", "Thiếu ngày nhận báo cáo", "Chưa có ngày nhận báo cáo ổ dịch bệnh đầu tiên."))
+        if not payload.get("last_onset_date"):
+            issues.append(("info", "Thiếu ngày khởi phát ca cuối", "Chưa có ngày khởi phát trường hợp bệnh cuối cùng."))
+    return issues
+
+
+def import_excel(path: Path | str, db_path: Path | str = DB_PATH) -> ImportSummary:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    init_db(db_path)
+    entity_type, sheet_name, header_row, mapping = detect_excel(path)
+    summary = ImportSummary(path.name, entity_type, sheet_name)
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet_name]
+    reset = getattr(ws, "reset_dimensions", None)
+    if callable(reset):
+        reset()
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    consecutive_empty = 0
+    try:
+        with _connect(db_path) as conn:
+            for row_no, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1):
+                raw_payload = {field: row[idx] if idx < len(row) else None for idx, field in mapping.items()}
+                payload = _normalize_payload(entity_type, raw_payload)
+                if _is_empty_payload(entity_type, payload):
+                    consecutive_empty += 1
+                    if consecutive_empty >= 100:
+                        break
+                    continue
+                consecutive_empty = 0
+                summary.rows_read += 1
+                payload["source_file"] = path.name
+                payload["source_sheet"] = sheet_name
+                payload["source_row"] = row_no
+                payload["imported_at"] = now
+                payload["raw_json"] = json.dumps({str(k): strip_text(v) for k, v in raw_payload.items()}, ensure_ascii=False)
+                payload["row_hash"] = _row_hash(entity_type, payload)
+                table = "cases" if entity_type == "case" else "outbreaks"
+                cols = list(payload)
+                placeholders = ",".join("?" for _ in cols)
+                try:
+                    cur = conn.execute(
+                        f"INSERT INTO {table} ({','.join(cols)}) VALUES ({placeholders})",
+                        [payload[c] for c in cols],
+                    )
+                    entity_id = cur.lastrowid
+                    summary.inserted += 1
+                except sqlite3.IntegrityError as exc:
+                    if "row_hash" in str(exc).lower() or "unique" in str(exc).lower():
+                        summary.duplicates += 1
+                        continue
+                    summary.skipped += 1
+                    continue
+                for severity, issue_type, description in _quality_checks(entity_type, payload):
+                    conn.execute(
+                        """INSERT INTO data_quality_issues
+                           (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (entity_type, entity_id, path.name, row_no, severity, issue_type, description, now),
+                    )
+                    summary.issues += 1
+            conn.execute(
+                """INSERT INTO import_batches
+                   (file_name, file_path, entity_type, sheet_name, rows_read, inserted, duplicates, skipped, issue_count, imported_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    path.name,
+                    str(path),
+                    entity_type,
+                    sheet_name,
+                    summary.rows_read,
+                    summary.inserted,
+                    summary.duplicates,
+                    summary.skipped,
+                    summary.issues,
+                    now,
+                ),
+            )
+    finally:
+        wb.close()
+    return summary
+
+
+def dashboard_stats(db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        cases = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+        outbreaks = conn.execute("SELECT COUNT(*) FROM outbreaks").fetchone()[0]
+        active = conn.execute("SELECT COUNT(*) FROM outbreaks WHERE status LIKE '%Đang hoạt động%'").fetchone()[0]
+        total_cases = conn.execute("SELECT COALESCE(SUM(case_count),0) FROM outbreaks").fetchone()[0]
+        deaths = conn.execute("SELECT COALESCE(SUM(death_count),0) FROM outbreaks").fetchone()[0]
+        issues = conn.execute("SELECT COUNT(*) FROM data_quality_issues WHERE severity IN ('error','warning')").fetchone()[0]
+        return {
+            "case_records": cases,
+            "outbreak_records": outbreaks,
+            "active_outbreaks": active,
+            "reported_cases": total_cases,
+            "deaths": deaths,
+            "quality_issues": issues,
+        }
+
+
+def disease_summary(db_path: Path | str = DB_PATH, limit: int = 15) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT disease, COUNT(*) AS outbreak_count,
+                      COALESCE(SUM(case_count),0) AS case_count,
+                      COALESCE(SUM(death_count),0) AS death_count,
+                      SUM(CASE WHEN status LIKE '%Đang hoạt động%' THEN 1 ELSE 0 END) AS active_count
+               FROM outbreaks
+               GROUP BY disease
+               ORDER BY outbreak_count DESC, disease
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def monthly_outbreak_summary(db_path: Path | str = DB_PATH, limit: int = 18) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT substr(first_onset_date,1,7) AS month,
+                      COUNT(*) AS outbreak_count,
+                      COALESCE(SUM(case_count),0) AS case_count
+               FROM outbreaks
+               WHERE first_onset_date <> ''
+               GROUP BY substr(first_onset_date,1,7)
+               ORDER BY month DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
+
+
+def recent_active_outbreaks(db_path: Path | str = DB_PATH, limit: int = 20) -> list[dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, disease, location, first_onset_date, case_count, status, reporting_unit
+               FROM outbreaks WHERE status LIKE '%Đang hoạt động%'
+               ORDER BY first_onset_date DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+CASE_TABLE_COLUMNS = [
+    "id", "case_code", "full_name", "birth_date_raw", "gender", "province", "commune",
+    "main_diagnosis", "onset_date", "current_status", "report_datetime", "reporting_unit",
+]
+OUTBREAK_TABLE_COLUMNS = [
+    "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date", "end_date",
+    "status", "case_count", "death_count", "sample_count", "positive_count", "report_datetime", "reporting_unit",
+]
+
+
+def _safe_table(entity_type: str) -> tuple[str, list[str]]:
+    if entity_type == "case":
+        return "cases", CASE_TABLE_COLUMNS
+    if entity_type == "outbreak":
+        return "outbreaks", OUTBREAK_TABLE_COLUMNS
+    raise ValueError("entity_type không hợp lệ")
+
+
+def list_filter_values(entity_type: str, field: str, db_path: Path | str = DB_PATH) -> list[str]:
+    table, columns = _safe_table(entity_type)
+    allowed = set(columns) | {"record_status", "current_status", "main_diagnosis", "disease", "status", "admin_area", "reporting_unit"}
+    if field not in allowed:
+        raise ValueError("Trường lọc không hợp lệ")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT DISTINCT {field} FROM {table} WHERE COALESCE({field},'') <> '' ORDER BY {field}"
+        ).fetchall()
+        return [str(r[0]) for r in rows]
+
+
+def query_records(
+    entity_type: str,
+    *,
+    search: str = "",
+    disease: str = "",
+    status: str = "",
+    admin_area: str = "",
+    page: int = 1,
+    page_size: int = 200,
+    db_path: Path | str = DB_PATH,
+) -> tuple[list[dict[str, Any]], int]:
+    table, columns = _safe_table(entity_type)
+    where: list[str] = []
+    params: list[Any] = []
+    if search:
+        like = f"%{search}%"
+        if entity_type == "case":
+            where.append("(full_name LIKE ? OR case_code LIKE ? OR national_id LIKE ? OR current_address LIKE ? OR commune LIKE ?)")
+            params.extend([like] * 5)
+        else:
+            where.append("(disease LIKE ? OR location LIKE ? OR reporting_unit LIKE ? OR admin_area LIKE ?)")
+            params.extend([like] * 4)
+    if disease:
+        field = "main_diagnosis" if entity_type == "case" else "disease"
+        where.append(f"{field} = ?")
+        params.append(disease)
+    if status:
+        if entity_type == "case":
+            where.append("(record_status = ? OR current_status = ?)")
+            params.extend([status, status])
+        else:
+            where.append("status = ?")
+            params.append(status)
+    if admin_area:
+        field = "commune" if entity_type == "case" else "admin_area"
+        where.append(f"{field} = ?")
+        params.append(admin_area)

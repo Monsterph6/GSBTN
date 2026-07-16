@@ -1,0 +1,307 @@
+from __future__ import annotations
+
+import math
+import sys
+from pathlib import Path
+from typing import Any
+
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer
+from PyQt6.QtGui import QAction, QColor, QFont, QIcon
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressDialog,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QStackedWidget,
+    QTableView,
+    QTabWidget,
+    QTextEdit,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+try:
+    from PyQt6.QtCharts import QBarCategoryAxis, QBarSeries, QBarSet, QChart, QChartView, QValueAxis
+    CHARTS_AVAILABLE = True
+except ImportError:
+    CHARTS_AVAILABLE = False
+
+import core as local_core
+import update_manager
+from deployment_config import DeploymentConfig, load_config, mode_label, save_config
+from lan_server import LanServerController
+
+DEPLOYMENT_CONFIG = load_config()
+if DEPLOYMENT_CONFIG.is_workstation:
+    import remote_core as core
+else:
+    core = local_core
+
+APP_TITLE = f"{core.APP_NAME} {core.VERSION} — {mode_label(DEPLOYMENT_CONFIG.mode)}"
+
+APP_STYLE = """
+QMainWindow, QWidget { background: #f5f7fb; color: #172033; font-family: 'Segoe UI'; font-size: 10pt; }
+QToolBar { background: #12355b; border: none; spacing: 6px; padding: 7px; }
+QToolBar QLabel { color: white; font-size: 15pt; font-weight: 700; padding: 0 12px; }
+QPushButton { background: #1665d8; color: white; border: none; border-radius: 6px; padding: 7px 13px; font-weight: 600; }
+QPushButton:hover { background: #0f56bd; }
+QPushButton:disabled { background: #a9b7c8; }
+QPushButton#secondary { background: #e7edf5; color: #23334d; }
+QPushButton#danger { background: #c73d3d; }
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit { background: white; border: 1px solid #cfd8e5; border-radius: 5px; padding: 5px; }
+QTableView { background: white; alternate-background-color: #f8fafc; border: 1px solid #d8e0ea; gridline-color: #e8edf3; selection-background-color: #dbeafe; selection-color: #172033; }
+QHeaderView::section { background: #e9eff7; color: #24344f; padding: 7px; border: none; border-right: 1px solid #d4dce7; font-weight: 700; }
+QTabWidget::pane { border: 1px solid #d8e0ea; background: white; }
+QTabBar::tab { background: #e9eff7; padding: 9px 15px; margin-right: 2px; }
+QTabBar::tab:selected { background: #1665d8; color: white; }
+QGroupBox { background: white; border: 1px solid #d8e0ea; border-radius: 8px; margin-top: 10px; font-weight: 700; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }
+QFrame#kpiCard { background: white; border: 1px solid #dce4ee; border-radius: 10px; }
+QLabel#kpiValue { color: #12355b; font-size: 22pt; font-weight: 800; }
+QLabel#kpiTitle { color: #607086; font-size: 9pt; }
+QLabel#sectionTitle { font-size: 14pt; font-weight: 800; color: #12355b; }
+"""
+
+
+def display_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        try:
+            date_part = text[:10]
+            y, m, d = date_part.split("-")
+            suffix = text[10:]
+            return f"{d}/{m}/{y}{suffix}"
+        except Exception:
+            return text
+    return text
+
+
+class DictTableModel(QAbstractTableModel):
+    def __init__(self, rows: list[dict[str, Any]] | None = None, columns: list[tuple[str, str]] | None = None):
+        super().__init__()
+        self.rows = rows or []
+        self.columns = columns or []
+
+    def set_data(self, rows: list[dict[str, Any]], columns: list[tuple[str, str]] | None = None) -> None:
+        self.beginResetModel()
+        self.rows = rows
+        if columns is not None:
+            self.columns = columns
+        self.endResetModel()
+
+    def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802
+        return len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()) -> int:  # noqa: N802
+        return len(self.columns)
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        key = self.columns[index.column()][0]
+        value = self.rows[index.row()].get(key, "")
+        if role == Qt.ItemDataRole.DisplayRole:
+            return display_value(value)
+        if role == Qt.ItemDataRole.TextAlignmentRole and isinstance(value, (int, float)):
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if role == Qt.ItemDataRole.BackgroundRole:
+            severity = self.rows[index.row()].get("severity")
+            if severity == "error":
+                return QColor("#fee2e2")
+            if severity == "warning":
+                return QColor("#fff7d6")
+        return None
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return self.columns[section][1]
+        return str(section + 1)
+
+    def record_at(self, row: int) -> dict[str, Any] | None:
+        if 0 <= row < len(self.rows):
+            return self.rows[row]
+        return None
+
+
+class KpiCard(QFrame):
+    def __init__(self, title: str):
+        super().__init__()
+        self.setObjectName("kpiCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        self.value_label = QLabel("0")
+        self.value_label.setObjectName("kpiValue")
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("kpiTitle")
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.title_label)
+
+    def set_value(self, value: Any) -> None:
+        self.value_label.setText(f"{value:,}" if isinstance(value, int) else str(value))
+
+
+class DashboardTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        root = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title = QLabel("Tổng quan giám sát dịch bệnh")
+        title.setObjectName("sectionTitle")
+        refresh = QPushButton("Làm mới")
+        refresh.clicked.connect(self.refresh)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(refresh)
+        root.addLayout(title_row)
+
+        kpi_grid = QGridLayout()
+        self.cards = {
+            "case_records": KpiCard("Bản ghi ca bệnh"),
+            "outbreak_records": KpiCard("Ổ dịch"),
+            "active_outbreaks": KpiCard("Ổ dịch đang hoạt động"),
+            "reported_cases": KpiCard("Tổng ca mắc trong ổ dịch"),
+            "deaths": KpiCard("Tử vong"),
+            "quality_issues": KpiCard("Cảnh báo chất lượng"),
+        }
+        for i, card in enumerate(self.cards.values()):
+            kpi_grid.addWidget(card, i // 3, i % 3)
+        root.addLayout(kpi_grid)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addWidget(QLabel("Thống kê theo bệnh"))
+        self.disease_table = QTableView()
+        self.disease_table.setAlternatingRowColors(True)
+        self.disease_model = DictTableModel(columns=[
+            ("disease", "Bệnh"),
+            ("outbreak_count", "Số ổ dịch"),
+            ("case_count", "Số ca"),
+            ("active_count", "Đang hoạt động"),
+            ("death_count", "Tử vong"),
+        ])
+        self.disease_table.setModel(self.disease_model)
+        self.disease_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        left_layout.addWidget(self.disease_table)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(QLabel("Ổ dịch đang hoạt động"))
+        self.active_table = QTableView()
+        self.active_table.setAlternatingRowColors(True)
+        self.active_model = DictTableModel(columns=[
+            ("disease", "Bệnh"),
+            ("location", "Địa điểm"),
+            ("first_onset_date", "Khởi phát đầu"),
+            ("case_count", "Ca mắc"),
+        ])
+        self.active_table.setModel(self.active_model)
+        self.active_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        right_layout.addWidget(self.active_table)
+        splitter.addWidget(left)
+        splitter.addWidget(right)
+        splitter.setSizes([650, 650])
+        root.addWidget(splitter, 1)
+
+        self.chart_container = QWidget()
+        self.chart_layout = QHBoxLayout(self.chart_container)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.chart_container, 1)
+        self.refresh()
+
+    def _clear_charts(self):
+        while self.chart_layout.count():
+            item = self.chart_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def refresh(self):
+        stats = core.dashboard_stats()
+        for key, card in self.cards.items():
+            card.set_value(stats.get(key, 0))
+        diseases = core.disease_summary()
+        active = core.recent_active_outbreaks()
+        self.disease_model.set_data(diseases)
+        self.active_model.set_data(active)
+        self._clear_charts()
+        if not CHARTS_AVAILABLE:
+            note = QLabel("Cài PyQt6-Charts để hiển thị biểu đồ trực quan.")
+            note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.chart_layout.addWidget(note)
+            return
+        self.chart_layout.addWidget(self._disease_chart(diseases))
+        self.chart_layout.addWidget(self._monthly_chart(core.monthly_outbreak_summary()))
+
+    def _disease_chart(self, rows: list[dict[str, Any]]) -> QChartView:
+        top = rows[:8]
+        series = QBarSeries()
+        bar_set = QBarSet("Ổ dịch")
+        categories = []
+        for row in top:
+            bar_set.append(float(row["outbreak_count"]))
+            name = str(row["disease"] or "Không rõ")
+            categories.append(name.replace("Bệnh ", "")[:22])
+        series.append(bar_set)
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setTitle("Số ổ dịch theo bệnh")
+        chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.0f")
+        axis_y.setMin(0)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_x)
+        series.attachAxis(axis_y)
+        chart.legend().setVisible(False)
+        return QChartView(chart)
+
+    def _monthly_chart(self, rows: list[dict[str, Any]]) -> QChartView:
+        series = QBarSeries()
+        outbreak_set = QBarSet("Ổ dịch")
+        case_set = QBarSet("Ca mắc")
+        categories = []
+        for row in rows:
+            outbreak_set.append(float(row["outbreak_count"]))
+            case_set.append(float(row["case_count"]))
+            month = str(row["month"])
+            categories.append(month[5:7] + "/" + month[:4])
+        series.append(outbreak_set)
+        series.append(case_set)
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setTitle("Diễn biến ổ dịch theo tháng")
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%.0f")
+        axis_y.setMin(0)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)

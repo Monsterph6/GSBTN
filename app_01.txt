@@ -1,0 +1,266 @@
+        series.attachAxis(axis_x)
+        series.attachAxis(axis_y)
+        chart.legend().setVisible(True)
+        return QChartView(chart)
+
+
+class RecordDetailsDialog(QDialog):
+    def __init__(self, title: str, record: dict[str, Any], labels: dict[str, str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(760, 650)
+        layout = QVBoxLayout(self)
+        table = QTableView()
+        rows = [{"field": labels.get(k, k), "value": display_value(v)} for k, v in record.items() if k not in {"raw_json", "row_hash"}]
+        table.setModel(DictTableModel(rows, [("field", "Trường"), ("value", "Giá trị")]))
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        layout.addWidget(table)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
+class OutbreakDialog(QDialog):
+    def __init__(self, record: dict[str, Any] | None = None, parent=None):
+        super().__init__(parent)
+        self.record = record or {}
+        self.setWindowTitle("Cập nhật ổ dịch" if record else "Thêm ổ dịch")
+        self.resize(680, 620)
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.fields: dict[str, QLineEdit | QComboBox | QSpinBox] = {}
+        for label, key in core.OUTBREAK_FIELDS:
+            if key == "source_stt":
+                continue
+            if key in {"case_count", "death_count", "sample_count", "positive_count"}:
+                widget = QSpinBox()
+                widget.setMaximum(10_000_000)
+                widget.setValue(int(self.record.get(key) or 0))
+            elif key == "status":
+                widget = QComboBox()
+                widget.addItems(["", "Đang hoạt động", "Đã kết thúc"])
+                current = str(self.record.get(key) or "")
+                if current and widget.findText(current) < 0:
+                    widget.addItem(current)
+                widget.setCurrentText(current)
+            else:
+                widget = QLineEdit(str(self.record.get(key) or ""))
+                if key in core.DATE_FIELDS:
+                    widget.setPlaceholderText("dd/mm/yyyy")
+                if key in core.DATETIME_FIELDS:
+                    widget.setPlaceholderText("dd/mm/yyyy HH:MM")
+            self.fields[key] = widget
+            form.addRow(label + ":", widget)
+        root.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def values(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        for key, widget in self.fields.items():
+            if isinstance(widget, QSpinBox):
+                data[key] = widget.value()
+            elif isinstance(widget, QComboBox):
+                data[key] = widget.currentText()
+            else:
+                data[key] = widget.text().strip()
+        return data
+
+    def accept(self):
+        data = self.values()
+        if not data.get("disease") or not data.get("location"):
+            QMessageBox.warning(self, "Thiếu thông tin", "Tên bệnh và địa điểm ổ dịch là bắt buộc.")
+            return
+        super().accept()
+
+
+class RecordsTab(QWidget):
+    def __init__(self, entity_type: str):
+        super().__init__()
+        self.entity_type = entity_type
+        self.page = 1
+        self.page_size = 200
+        self.total = 0
+        root = QVBoxLayout(self)
+
+        filter_box = QGroupBox("Bộ lọc")
+        filters = QHBoxLayout(filter_box)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Tìm họ tên, mã số, địa chỉ, đơn vị báo cáo...")
+        self.search.returnPressed.connect(self.refresh)
+        self.disease = QComboBox()
+        self.status = QComboBox()
+        self.area = QComboBox()
+        self.disease.addItem("Tất cả bệnh", "")
+        self.status.addItem("Tất cả trạng thái", "")
+        self.area.addItem("Tất cả địa bàn", "")
+        self.refresh_filters()
+        for widget in (self.disease, self.status, self.area):
+            widget.currentIndexChanged.connect(self._filter_changed)
+        btn_search = QPushButton("Tra cứu")
+        btn_search.clicked.connect(self.refresh)
+        btn_export = QPushButton("Xuất Excel/CSV")
+        btn_export.setObjectName("secondary")
+        btn_export.clicked.connect(self.export_data)
+        filters.addWidget(self.search, 3)
+        filters.addWidget(self.disease, 2)
+        filters.addWidget(self.status, 1)
+        filters.addWidget(self.area, 2)
+        filters.addWidget(btn_search)
+        filters.addWidget(btn_export)
+        root.addWidget(filter_box)
+
+        action_row = QHBoxLayout()
+        self.title = QLabel("Danh sách ca bệnh" if entity_type == "case" else "Danh sách ổ dịch")
+        self.title.setObjectName("sectionTitle")
+        action_row.addWidget(self.title)
+        action_row.addStretch()
+        if entity_type == "outbreak":
+            btn_add = QPushButton("Thêm ổ dịch")
+            btn_add.clicked.connect(self.add_outbreak)
+            btn_edit = QPushButton("Sửa")
+            btn_edit.setObjectName("secondary")
+            btn_edit.clicked.connect(self.edit_selected)
+            btn_delete = QPushButton("Xóa")
+            btn_delete.setObjectName("danger")
+            btn_delete.clicked.connect(self.delete_selected)
+            action_row.addWidget(btn_add)
+            action_row.addWidget(btn_edit)
+            action_row.addWidget(btn_delete)
+        root.addLayout(action_row)
+
+        self.table = QTableView()
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(self.show_details)
+        if entity_type == "case":
+            columns = [
+                ("case_code", "Mã số"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),
+                ("gender", "Giới"), ("commune", "Xã/Phường"), ("main_diagnosis", "Chẩn đoán"),
+                ("onset_date", "Khởi phát"), ("current_status", "Tình trạng"),
+                ("report_datetime", "Báo cáo"), ("reporting_unit", "Đơn vị báo cáo"),
+            ]
+        else:
+            columns = [
+                ("disease", "Tên bệnh"), ("location", "Địa điểm"), ("admin_area", "Địa bàn"),
+                ("first_onset_date", "Khởi phát đầu"), ("last_onset_date", "Khởi phát cuối"),
+                ("status", "Trạng thái"), ("case_count", "Ca mắc"), ("death_count", "Tử vong"),
+                ("sample_count", "Mẫu XN"), ("positive_count", "Mẫu (+)"),
+                ("report_datetime", "Ngày báo cáo"), ("reporting_unit", "Đơn vị báo cáo"),
+            ]
+        self.model = DictTableModel(columns=columns)
+        self.table.setModel(self.model)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        if entity_type == "case":
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        else:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table, 1)
+
+        pager = QHBoxLayout()
+        self.prev_btn = QPushButton("← Trang trước")
+        self.prev_btn.setObjectName("secondary")
+        self.prev_btn.clicked.connect(self.prev_page)
+        self.next_btn = QPushButton("Trang sau →")
+        self.next_btn.setObjectName("secondary")
+        self.next_btn.clicked.connect(self.next_page)
+        self.page_label = QLabel()
+        pager.addWidget(self.prev_btn)
+        pager.addWidget(self.page_label)
+        pager.addWidget(self.next_btn)
+        pager.addStretch()
+        root.addLayout(pager)
+        self.refresh()
+
+    def _filter_changed(self):
+        self.page = 1
+        self.refresh()
+
+    def refresh_filters(self):
+        try:
+            if self.entity_type == "case":
+                disease_values = core.list_filter_values("case", "main_diagnosis")
+                status_values = sorted(set(core.list_filter_values("case", "record_status") + core.list_filter_values("case", "current_status")))
+                area_values = core.list_filter_values("case", "commune")
+            else:
+                disease_values = core.list_filter_values("outbreak", "disease")
+                status_values = core.list_filter_values("outbreak", "status")
+                area_values = core.list_filter_values("outbreak", "admin_area")
+            for combo, values in ((self.disease, disease_values), (self.status, status_values), (self.area, area_values)):
+                current = combo.currentData()
+                combo.blockSignals(True)
+                while combo.count() > 1:
+                    combo.removeItem(1)
+                for value in values:
+                    combo.addItem(value, value)
+                idx = combo.findData(current)
+                combo.setCurrentIndex(idx if idx >= 0 else 0)
+                combo.blockSignals(False)
+        except Exception:
+            pass
+
+    def refresh(self):
+        rows, total = core.query_records(
+            self.entity_type,
+            search=self.search.text().strip(),
+            disease=self.disease.currentData() or "",
+            status=self.status.currentData() or "",
+            admin_area=self.area.currentData() or "",
+            page=self.page,
+            page_size=self.page_size,
+        )
+        self.total = total
+        self.model.set_data(rows)
+        pages = max(1, math.ceil(total / self.page_size))
+        if self.page > pages:
+            self.page = pages
+            return self.refresh()
+        self.page_label.setText(f"Trang {self.page}/{pages} — {total:,} bản ghi")
+        self.prev_btn.setEnabled(self.page > 1)
+        self.next_btn.setEnabled(self.page < pages)
+
+    def selected_record(self) -> dict[str, Any] | None:
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một bản ghi trong danh sách.")
+            return None
+        return self.model.record_at(indexes[0].row())
+
+    def show_details(self):
+        record = self.selected_record()
+        if not record:
+            return
+        full = core.get_record(self.entity_type, int(record["id"]))
+        labels = core.CASE_LABELS if self.entity_type == "case" else core.OUTBREAK_LABELS
+        labels = {**labels, "admin_area": "Địa bàn chuẩn hóa", "source_file": "File nguồn", "source_row": "Dòng nguồn", "imported_at": "Thời điểm nhập"}
+        RecordDetailsDialog("Chi tiết bản ghi", full or record, labels, self).exec()
+
+    def prev_page(self):
+        if self.page > 1:
+            self.page -= 1
+            self.refresh()
+
+    def next_page(self):
+        if self.page * self.page_size < self.total:
+            self.page += 1
+            self.refresh()
+
+    def export_data(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất dữ liệu", "", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".xlsx"
+        try:
+            count = core.export_filtered_records(
+                path,
+                self.entity_type,
+                search=self.search.text().strip(),

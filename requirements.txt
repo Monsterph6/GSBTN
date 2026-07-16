@@ -1,5 +1,0 @@
-PyQt6>=6.7,<7
-PyQt6-Charts>=6.7,<7
-openpyxl>=3.1,<4
-pyinstaller>=6.0,<7
-pytest>=8,<10
