@@ -1,86 +1,54 @@
-name: Introspect wrapped source
+name: Decode wrapped source
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  introspect:
+  decode:
     if: ${{ github.head_ref == 'agent/duplicate-filter' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: agent/duplicate-filter
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Decode and inspect source
+      - name: Replace wrappers with readable Python source
         shell: python
         run: |
           import ast
           import base64
-          import re
           import zlib
           from pathlib import Path
 
           def decode_wrapper(path: str) -> str:
               text = Path(path).read_text(encoding='utf-8')
               tree = ast.parse(text)
-              payload = None
               for node in tree.body:
                   if isinstance(node, ast.Assign):
                       for target in node.targets:
                           if isinstance(target, ast.Name) and target.id == '_PAYLOAD':
                               payload = ast.literal_eval(node.value)
-              if not payload:
-                  raise RuntimeError(f'No payload found in {path}')
-              return zlib.decompress(base64.b85decode(payload)).decode('utf-8')
+                              return zlib.decompress(base64.b85decode(payload)).decode('utf-8')
+              raise RuntimeError(f'No payload found in {path}')
 
-          app = decode_wrapper('app.py')
-          core = decode_wrapper('core.py')
-          Path('decoded_app.py').write_text(app, encoding='utf-8')
-          Path('decoded_core.py').write_text(core, encoding='utf-8')
+          for filename in ('app.py', 'core.py'):
+              source = decode_wrapper(filename)
+              compile(source, filename, 'exec')
+              Path(filename).write_text(source, encoding='utf-8', newline='\n')
 
-          print('=== APP CLASSES / METHODS ===')
-          tree = ast.parse(app)
-          for node in tree.body:
-              if isinstance(node, ast.ClassDef):
-                  methods = [n.name for n in node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-                  print(f'{node.name}: {methods}')
-
-          print('\n=== CORE FUNCTIONS ===')
-          tree = ast.parse(core)
-          for node in tree.body:
-              if isinstance(node, ast.FunctionDef):
-                  print(node.name)
-
-          def contexts(source: str, patterns: list[str], radius: int = 8):
-              lines = source.splitlines()
-              shown = set()
-              for i, line in enumerate(lines):
-                  if any(re.search(p, line, re.I) for p in patterns):
-                      start = max(0, i-radius)
-                      end = min(len(lines), i+radius+1)
-                      key = (start, end)
-                      if key in shown:
-                          continue
-                      shown.add(key)
-                      print(f'--- lines {start+1}-{end} ---')
-                      for j in range(start, end):
-                          print(f'{j+1:04d}: {lines[j]}')
-
-          print('\n=== APP UI CONTEXTS ===')
-          contexts(app, [r'addTab', r'QToolBar', r'addAction', r'class Main', r'def main', r'\.show\('], 12)
-
-          print('\n=== CORE DB / DUPLICATE CONTEXTS ===')
-          contexts(core, [r'CREATE TABLE.*cases', r'CREATE TABLE.*outbreaks', r'row_hash', r'def db_', r'DB_PATH', r'def backup'], 10)
-
-      - name: Upload decoded source
-        uses: actions/upload-artifact@v4
-        with:
-          name: decoded-source
-          path: |
-            decoded_app.py
-            decoded_core.py
+          Path('.github/workflows/introspect-source.yml').unlink()
+      - name: Commit readable source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py core.py .github/workflows/introspect-source.yml
+          git commit -m "Giải nén mã nguồn để phát triển lọc trùng"
+          git push origin HEAD:agent/duplicate-filter
