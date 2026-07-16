@@ -1,0 +1,77 @@
+name: Diagnose GSBTN v0.5.0 patch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  diagnose:
+    if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[DIAGNOSE V050 DIFF]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/lan-duplicates-backup
+          fetch-depth: 0
+      - name: Read comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/issues/16/comments?per_page=100" > comments.json
+      - name: Calculate part hashes
+        shell: python
+        run: |
+          import hashlib, json, re
+          from pathlib import Path
+          comments = json.loads(Path('comments.json').read_text(encoding='utf-8'))
+          parts = {}
+          def append(n, text):
+              old = parts.get(n, '')
+              if old and not old.endswith('\n') and text:
+                  old += '\n'
+              parts[n] = old + text
+          for comment in comments:
+              lines = str(comment.get('body') or '').splitlines(keepends=True)
+              if not lines:
+                  continue
+              marker, content = lines[0].strip(), ''.join(lines[1:])
+              m = re.fullmatch(r'GSBTN_V050_DIFF (\d+)/9', marker)
+              if m and int(m.group(1)) not in parts:
+                  parts[int(m.group(1))] = content
+                  continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT (\d+)/9', marker)
+              if m:
+                  append(int(m.group(1)), content); continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_REPLACE (\d+)/9', marker)
+              if m:
+                  n = int(m.group(1))
+                  if n == 9:
+                      fixed, stripping = [], False
+                      for line in content.splitlines(keepends=True):
+                          if line.startswith('+--- /dev/null'):
+                              stripping = True
+                          if stripping and line.startswith('+'):
+                              line = line[1:]
+                          fixed.append(line)
+                      content = ''.join(fixed)
+                  parts[n] = content
+                  continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT_PLUS1 (\d+)/9', marker)
+              if m:
+                  fixed = ''.join(line[1:] if line.startswith('+') else line for line in content.splitlines(keepends=True))
+                  append(int(m.group(1)), fixed)
+          report = []
+          for n in range(1, 10):
+              data = parts.get(n, '').encode()
+              report.append(f'{n} {len(data)} {hashlib.sha256(data).hexdigest()}')
+          Path('.v050-diagnostic.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
+      - name: Commit diagnostic
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .v050-diagnostic.txt
+          git commit -m "Ghi chẩn đoán bản vá v0.5.0"
+          git push origin HEAD:agent/lan-duplicates-backup
