@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   verify-windows:
@@ -94,3 +95,17 @@ jobs:
             setup_output/GiamSatDichBenh-Setup-v0.5.0.exe
             GiamSatDichBenh-Portable-v0.5.0.zip
             SHA256SUMS.txt
+
+      - name: Report success
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 16 --repo $env:GITHUB_REPOSITORY --body "[V050 WINDOWS SUCCESS] 11/11 kiểm thử đạt; PyInstaller, Inno Setup, quét dữ liệu, portable và SHA-256 đều thành công."
+
+      - name: Report failure
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 16 --repo $env:GITHUB_REPOSITORY --body "[V050 WINDOWS FAILURE] Workflow xác minh Windows thất bại. Hãy kiểm tra job mới nhất để sửa bước lỗi."
