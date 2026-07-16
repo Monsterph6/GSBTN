@@ -1,0 +1,25 @@
+name: Verify Release v0.4.0
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: ${{ github.head_ref == 'verify-release-v040-trigger' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.4.0 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > assets.txt
+          cat assets.txt
+          grep -Fx 'GiamSatDichBenh-Setup-v0.4.0.exe' assets.txt
+          grep -Fx 'GiamSatDichBenh-Portable-v0.4.0.zip' assets.txt
+          grep -Fx 'SHA256SUMS.txt' assets.txt
