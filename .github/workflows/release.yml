@@ -45,7 +45,11 @@ jobs:
             throw "VERSION.txt must contain a semantic version such as 0.3.0"
           }
           $tag = "v$version"
-          if (git ls-remote --exit-code --tags origin "refs/tags/$tag") {
+          $existingTag = git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unable to query tags from origin."
+          }
+          if ($existingTag) {
             throw "Release $tag already exists. Increase VERSION.txt before pushing another release."
           }
           "version=$version" >> $env:GITHUB_OUTPUT
