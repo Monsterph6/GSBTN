@@ -1,3 +1,4 @@
 Build GitHub Release v0.3.0 from the clean main branch.
 Retry after fixing PowerShell tag detection.
 Run Windows pytest diagnostic.
+Retry after closing SQLite connections on Windows.
