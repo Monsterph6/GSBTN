@@ -92,6 +92,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
+            if length < 0 or length > 110 * 1024 * 1024:
+                raise ValueError("Kích thước yêu cầu vượt quá giới hạn 110 MB.")
             payload = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
             if self.path.rstrip("/") == "/rpc":
                 result = self._handle_rpc(payload)
@@ -114,6 +116,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         args, kwargs = payload.get("args") or [], payload.get("kwargs") or {}
         if not isinstance(args, list) or not isinstance(kwargs, dict):
             raise ValueError("args/kwargs không hợp lệ.")
+        # Máy trạm không được chọn đường dẫn CSDL trên máy chủ.
+        kwargs.pop("db_path", None)
         return function(*args, **kwargs)
 
     def _handle_import(self, payload: dict[str, Any]) -> Any:
