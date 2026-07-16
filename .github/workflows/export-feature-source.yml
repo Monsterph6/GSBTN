@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   export:
@@ -29,3 +30,7 @@ jobs:
             *.bat
             *.iss
             .gitignore
+      - name: Report workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment "${{ github.event.issue.number }}" --body "Snapshot source đã tạo. Run ID: $GITHUB_RUN_ID"
