@@ -4,3 +4,4 @@ Run Windows pytest diagnostic.
 Retry after closing SQLite connections on Windows.
 Retry after enforcing Setup.exe creation.
 Run full Windows build diagnostic.
+Capture final 7000 characters of build log.
