@@ -5,6 +5,10 @@ on:
     branches:
       - main
   workflow_dispatch:
+  issues:
+    types: [opened]
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
@@ -15,6 +19,7 @@ concurrency:
 
 jobs:
   build-windows:
+    if: ${{ github.event_name != 'issues' || github.event.issue.title == '[RELEASE] Build v0.3.0' }}
     runs-on: windows-latest
 
     steps:
