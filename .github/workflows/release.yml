@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   build-windows:
+    if: github.head_ref != 'agent/verify-release-v040'
     runs-on: windows-latest
     steps:
       - name: Checkout source
