@@ -763,7 +763,9 @@ class CaseDuplicateCriteriaDialog(QDialog):
         root = QVBoxLayout(self)
         info = QLabel(
             "Hai ca bệnh được coi là trùng nếu khớp ít nhất một tiêu chí đang chọn. "
-            "Không còn tính điểm — mỗi tiêu chí là một quy tắc so khớp rõ ràng."
+            "Không còn tính điểm — mỗi tiêu chí là một quy tắc so khớp rõ ràng.\n"
+            "Lưu ý: \"Họ tên gần giống\" và \"Ngày khởi phát gần nhau\" chỉ so sánh các ca "
+            "trong cùng một xã/phường."
         )
         info.setWordWrap(True); root.addWidget(info)
         box = QGroupBox("Tiêu chí"); form = QVBoxLayout(box)

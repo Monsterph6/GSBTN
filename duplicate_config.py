@@ -35,7 +35,12 @@ CRITERIA_CONFIG_PATH = _user_data_root() / "case_duplicate_criteria.json"
 
 @dataclass
 class CaseDuplicateCriteria:
-    """Tiêu chí lọc trùng ca bệnh do CDC chọn — thay cho chấm điểm/trọng số."""
+    """Tiêu chí lọc trùng ca bệnh do CDC chọn — thay cho chấm điểm/trọng số.
+
+    Riêng ``name_similar`` (họ tên gần giống) và ``onset_near`` (khởi phát gần ngày) chỉ so
+    sánh các ca trong CÙNG một xã/phường — đây là phạm vi được chọn để giới hạn số cặp phải so
+    khớp mờ (không có khoá chặn chính xác như các tiêu chí còn lại).
+    """
 
     enabled: list[str] = field(default_factory=lambda: list(DEFAULT_CASE_CRITERIA))
     name_similarity_percent: int = 92

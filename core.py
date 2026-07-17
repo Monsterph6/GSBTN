@@ -12,6 +12,7 @@ import sqlite3
 import sys
 import threading
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -58,7 +59,7 @@ _DB_INIT_LOCK = threading.RLock()
 for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR, QUEUE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
-QUEUE_STATUSES = {"cho_nhap", "da_nhap", "loi"}
+QUEUE_STATUSES = {"cho_nhap", "dang_nhap", "da_nhap", "loi"}
 QUEUE_SOURCES = {"server_chinh", "server_phu"}
 
 
@@ -1106,6 +1107,13 @@ def _find_case_duplicate_groups(
     if len(rows) < 2:
         return []
 
+    # "name_similar"/"onset_near" so khớp mờ (không đòi hỏi khớp chính xác một trường nào), nên
+    # không có khoá chặn tự nhiên như các tiêu chí còn lại. Khi CDC bật một trong hai, mở thêm
+    # phạm vi so sánh theo từng xã — nếu không, 2 ca chỉ "tên gần giống"/"ngày khởi phát gần
+    # nhau" (không trùng thêm trường nào khác) sẽ không bao giờ lọt vào cùng bucket exact-match
+    # và do đó không bao giờ được so sánh, khiến 2 tiêu chí này gần như vô hiệu khi bật riêng lẻ.
+    needs_commune_bucket = bool({"name_similar", "onset_near"} & set(resolved_criteria.enabled))
+
     buckets: dict[str, list[int]] = {}
     for index, row in enumerate(rows):
         keys: set[str] = set()
@@ -1121,6 +1129,7 @@ def _find_case_duplicate_groups(
         if name and year: keys.add(f"nameyear:{name}:{year}")
         if name and commune: keys.add(f"namearea:{name}:{commune}")
         if name: keys.add("name:" + name)
+        if needs_commune_bucket and commune: keys.add("commune:" + commune)
         for key in keys:
             buckets.setdefault(key, []).append(index)
 
@@ -1511,7 +1520,9 @@ def queue_submit(
     dest_dir = QUEUE_DIR / _safe_path_part(commune) / _safe_path_part(week)
     dest_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    dest_path = dest_dir / f"{stamp}_{safe_name}"
+    dest_path = dest_dir / f"{stamp}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    while dest_path.exists():
+        dest_path = dest_dir / f"{stamp}_{uuid.uuid4().hex[:8]}_{safe_name}"
     dest_path.write_bytes(file_bytes)
     with _connect(db_path) as conn:
         cur = conn.execute(
@@ -1540,16 +1551,26 @@ def list_import_queue(status: str = "", commune: str = "", db_path: Path | str =
 
 
 def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:
-    """Nhập một file đang chờ trong hàng đợi vào CSDL chính bằng import_excel hiện có."""
+    """Nhập một file đang chờ trong hàng đợi vào CSDL chính bằng import_excel hiện có.
+
+    Dùng một câu UPDATE nguyên tử để "giữ chỗ" mục hàng đợi (chuyển sang trạng thái tạm
+    ``dang_nhap``) trước khi nhập — tránh 2 yêu cầu đồng thời (2 người CDC cùng bấm nhập, hoặc
+    bấm đúp) cùng đọc thấy ``cho_nhap`` rồi cùng chạy ``import_excel`` song song trên một file.
+    """
     init_db(db_path)
     queue_id = int(queue_id)
     with _connect(db_path) as conn:
         row = conn.execute("SELECT * FROM import_queue WHERE id=?", (queue_id,)).fetchone()
-    if not row:
-        raise ValueError("Không tìm thấy mục trong hàng đợi.")
-    item = dict(row)
-    if item["status"] == "da_nhap":
-        raise ValueError("Mục này đã được nhập vào CSDL trước đó.")
+        if not row:
+            raise ValueError("Không tìm thấy mục trong hàng đợi.")
+        item = dict(row)
+        claimed = conn.execute(
+            "UPDATE import_queue SET status='dang_nhap' WHERE id=? AND status='cho_nhap'", (queue_id,)
+        )
+        if claimed.rowcount == 0:
+            if item["status"] == "da_nhap":
+                raise ValueError("Mục này đã được nhập vào CSDL trước đó.")
+            raise ValueError("Mục này đang được xử lý hoặc đã nhập bởi một thao tác khác.")
     file_path = Path(item["file_path"])
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     if not file_path.exists():
@@ -1717,7 +1738,11 @@ def export_cases_by_commune(
     path = Path(path)
     init_db(db_path)
     resolved_criteria = _resolve_case_criteria(criteria)
-    groups = _find_case_duplicate_groups("cases", resolved_criteria, 20000, db_path)
+    with _connect(db_path) as conn:
+        total_cases = int(conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0])
+    # Dò trùng phải phủ hết dữ liệu sẽ xuất bên dưới (không LIMIT) — nếu không, các ca có id
+    # lớn hơn ngưỡng mặc định của find_duplicate_groups vẫn được xuất nhưng chưa được dò trùng.
+    groups = _find_case_duplicate_groups("cases", resolved_criteria, max(total_cases, 1), db_path)
 
     hidden = {"row_hash", "raw_json"}
     with _connect(db_path) as conn:

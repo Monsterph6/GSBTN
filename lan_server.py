@@ -166,6 +166,7 @@ CDC_QUEUE_PAGE_HTML = """<!doctype html>
   th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
   th { background: #f1f5f9; }
   tr.cho_nhap { background: #fff7d6; }
+  tr.dang_nhap { background: #e0f2fe; }
   tr.da_nhap { background: #f0fdf4; }
   tr.loi { background: #fee2e2; }
   button { padding: 6px 10px; cursor: pointer; }
@@ -214,7 +215,7 @@ async function syncSecondary() {
 }
 document.getElementById("sync").addEventListener("click", syncSecondary);
 
-const STATUS_LABEL = { cho_nhap: "Chờ nhập", da_nhap: "Đã nhập", loi: "Lỗi" };
+const STATUS_LABEL = { cho_nhap: "Chờ nhập", dang_nhap: "Đang nhập...", da_nhap: "Đã nhập", loi: "Lỗi" };
 const SOURCE_LABEL = { server_chinh: "Trực tiếp", server_phu: "Qua máy chủ phụ" };
 
 async function load() {

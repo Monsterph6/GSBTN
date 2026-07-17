@@ -7,6 +7,7 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
@@ -68,6 +69,48 @@ def test_case_duplicate_no_match_when_criteria_not_selected():
         assert groups == []
 
 
+def test_case_duplicate_name_similar_detects_pairs_within_same_commune():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
+        file = root / "cases.xlsx"
+        rows = [
+            dict(BASE_CASE, case_code="CA-N1", full_name="Nguyễn Văn An", phone="0911111111",
+                 birth_date_raw="01/01/1980", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-N2", full_name="Nguyễn Văn Anh", phone="0922222222",
+                 birth_date_raw="02/02/1990", commune="Xã A"),
+        ]
+        make_excel(file, core.CASE_FIELDS, rows)
+        assert core.import_excel(file, db).inserted == 2
+        groups = core.find_duplicate_groups("case", db_path=db, criteria={"enabled": ["name_similar"]})
+        assert len(groups) == 1
+        assert any("gần giống" in c for c in groups[0]["matched_criteria"])
+
+
+def test_case_duplicate_onset_near_detects_pairs_within_same_commune_only():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
+        file = root / "cases.xlsx"
+        rows = [
+            dict(BASE_CASE, case_code="CA-O1", full_name="Lê Thị Hoa", phone="0933333333",
+                 onset_date="10/07/2026", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-O2", full_name="Phạm Văn Bình", phone="0944444444",
+                 onset_date="12/07/2026", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-O3", full_name="Đỗ Thị Mai", phone="0955555555",
+                 onset_date="11/07/2026", commune="Xã B"),
+        ]
+        make_excel(file, core.CASE_FIELDS, rows)
+        assert core.import_excel(file, db).inserted == 3
+        groups = core.find_duplicate_groups(
+            "case", db_path=db, criteria={"enabled": ["onset_near"], "onset_max_days": 3}
+        )
+        # Xã A có 2 ca lệch ngày khởi phát trong ngưỡng -> phát hiện được nhờ bucket theo xã.
+        assert len(groups) == 1
+        assert set(groups[0]["case_codes"]) == {"CA-O1", "CA-O2"}
+        # Ca ở Xã B không được so với Xã A dù cũng lệch ngày trong ngưỡng — giới hạn đã biết
+        # (name_similar/onset_near chỉ so trong cùng xã).
+        assert "CA-O3" not in groups[0]["case_codes"]
+
+
 def test_export_cases_by_commune_resolves_cross_commune_by_latest_admission():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
@@ -92,6 +135,23 @@ def test_export_cases_by_commune_resolves_cross_commune_by_latest_admission():
         assert commune_b_codes == {"CA-1", "CA-1-B"}
 
 
+def test_export_cases_by_commune_dedup_scope_covers_all_records():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
+        file = root / "cases.xlsx"
+        rows = [dict(BASE_CASE, case_code=f"CA-{i}", commune="Xã A") for i in range(5)]
+        make_excel(file, core.CASE_FIELDS, rows)
+        assert core.import_excel(file, db).inserted == 5
+        out = root / "theo_xa.xlsx"
+        with patch("core._find_case_duplicate_groups", wraps=core._find_case_duplicate_groups) as spy:
+            core.export_cases_by_commune(out, db_path=db)
+            max_records_used = spy.call_args.args[2]
+            assert max_records_used >= 5, (
+                "phạm vi dò trùng khi xuất theo xã phải phủ hết số ca thực tế, "
+                "không được cố định thấp hơn tổng số ca"
+            )
+
+
 def test_import_queue_submit_list_and_import():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp); db = root / "test.db"
@@ -110,6 +170,60 @@ def test_import_queue_submit_list_and_import():
             assert False, "phải báo lỗi khi nhập lại mục đã nhập"
         except ValueError:
             pass
+
+
+def test_queue_submit_same_second_does_not_overwrite_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        data_a = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-DUP-A")])
+        data_b = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-DUP-B")])
+        first = core.queue_submit("Xã Gia Viên", "2026-W29", "danh_sach.xlsx", data_a, db_path=db)
+        second = core.queue_submit("Xã Gia Viên", "2026-W29", "danh_sach.xlsx", data_b, db_path=db)
+        items = {item["id"]: item for item in core.list_import_queue(db_path=db)}
+        path_a = Path(items[first["queue_id"]]["file_path"])
+        path_b = Path(items[second["queue_id"]]["file_path"])
+        assert path_a != path_b
+        assert path_a.exists() and path_b.exists()
+        assert path_a.read_bytes() == data_a
+        assert path_b.read_bytes() == data_b
+
+
+def test_import_queue_item_concurrent_calls_only_import_once():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-RACE")])
+        submitted = core.queue_submit("Xã Gia Viên", "2026-W29", "danh_sach.xlsx", data, db_path=db)
+        queue_id = submitted["queue_id"]
+
+        results: list[tuple[bool, str]] = []
+        results_lock = threading.Lock()
+        start_barrier = threading.Barrier(2)
+
+        def worker():
+            start_barrier.wait()
+            try:
+                core.import_queue_item(queue_id, db_path=db)
+                with results_lock:
+                    results.append((True, ""))
+            except ValueError as exc:
+                with results_lock:
+                    results.append((False, str(exc)))
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        successes = [r for r in results if r[0]]
+        failures = [r for r in results if not r[0]]
+        assert len(successes) == 1, f"chỉ một lần gọi được thành công, nhận: {results}"
+        assert len(failures) == 1
+        assert core.dashboard_stats(db)["case_records"] == 1
+        items = core.list_import_queue(db_path=db)
+        assert items[0]["status"] == "da_nhap"
 
 
 def test_lan_server_queue_endpoints():

@@ -114,8 +114,8 @@ chí trùng chính xác — chỉ cần đưa lên UI làm checkbox thay vì dù
 | ☐ Trùng số điện thoại | 9 số cuối giống hệt | `phone` |
 | ☐ Trùng họ tên + năm sinh | `full_name` + `birth_year` giống hệt | `full_name`, `birth_year` |
 | ☐ Trùng họ tên + xã/phường | `full_name` + `commune` giống hệt | `full_name`, `commune` |
-| ☐ Họ tên gần giống (≥ ngưỡng ký tự) | tỉ lệ khớp chuỗi ≥ mức chọn (mặc định 92%) | `full_name` |
-| ☐ Ngày khởi phát trong N ngày | lệch ≤ N ngày (CDC chọn N) | `onset_date` |
+| ☐ Họ tên gần giống (≥ ngưỡng ký tự) | tỉ lệ khớp chuỗi ≥ mức chọn (mặc định 92%), chỉ so trong cùng xã | `full_name` |
+| ☐ Ngày khởi phát trong N ngày | lệch ≤ N ngày (CDC chọn N), chỉ so trong cùng xã | `onset_date` |
 
 - Mặc định bật sẵn 2 tiêu chí "chắc chắn" (mã ca, CCCD) — tương đương quy tắc hiện tại
   `if code_a == code_b: return 100`. Các tiêu chí còn lại CDC tự bật/tắt theo đợt lọc.
